@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 472" role="img" aria-label="Forest plot of paired differences between Jev and each of the four Claude judges for accuracy, false-accept rate and false-reject rate, with 95% confidence intervals; positive values favour Jev." style="width:100%;height:auto;max-width:800px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#ffffff">
+<rect width="800" height="472" fill="#ffffff"/>
+<line x1="200.0" y1="12.0" x2="200.0" y2="402.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="200.0" y="420.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">−20</text>
+<line x1="290.0" y1="12.0" x2="290.0" y2="402.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="290.0" y="420.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">−10</text>
+<line x1="380.0" y1="12.0" x2="380.0" y2="402.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="380.0" y="420.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">0</text>
+<line x1="470.0" y1="12.0" x2="470.0" y2="402.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="470.0" y="420.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">10</text>
+<line x1="560.0" y1="12.0" x2="560.0" y2="402.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="560.0" y="420.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">20</text>
+<line x1="650.0" y1="12.0" x2="650.0" y2="402.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="650.0" y="420.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">30</text>
+<line x1="380.0" y1="12.0" x2="380.0" y2="402.0" stroke="#0b0b0b" stroke-width="1.25"/>
+<text x="12.0" y="32.0" font-size="13" fill="#0b0b0b" text-anchor="start" font-weight="600">Accuracy</text>
+<text x="188.0" y="58.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">vs Haiku 5.5</text>
+<g><title>Accuracy vs Haiku 5.5: 8.5 points (95% CI 5.9 to 10.6)</title><line x1="433.2" y1="54.5" x2="475.7" y2="54.5" stroke="#eb6834" stroke-width="2" stroke-linecap="round"/><circle cx="456.1" cy="54.5" r="5" fill="#eb6834" stroke="#ffffff" stroke-width="2"/></g>
+<text x="664.0" y="58.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">8.5 [5.9, 10.6]</text>
+<text x="188.0" y="83.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">vs Haiku 5.5 + thinking</text>
+<g><title>Accuracy vs Haiku 5.5 + thinking: −10.7 points (95% CI −12.7 to −8.9)</title><line x1="265.5" y1="79.5" x2="300.1" y2="79.5" stroke="#eb6834" stroke-width="2" stroke-linecap="round"/><circle cx="283.7" cy="79.5" r="5.5" fill="#ffffff" stroke="#eb6834" stroke-width="2.5"/></g>
+<text x="664.0" y="83.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">−10.7 [−12.7, −8.9]</text>
+<text x="188.0" y="108.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">vs Sonnet 5.5</text>
+<g><title>Accuracy vs Sonnet 5.5: −0.5 points (95% CI −2.7 to 1.7)</title><line x1="355.5" y1="104.5" x2="395.5" y2="104.5" stroke="#1baf7a" stroke-width="2" stroke-linecap="round"/><circle cx="375.9" cy="104.5" r="5" fill="#1baf7a" stroke="#ffffff" stroke-width="2"/></g>
+<text x="664.0" y="108.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">−0.5 [−2.7, 1.7]</text>
+<text x="188.0" y="133.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">vs Sonnet 5.5 + thinking</text>
+<g><title>Accuracy vs Sonnet 5.5 + thinking: −11.6 points (95% CI −13.5 to −9.8)</title><line x1="258.6" y1="129.5" x2="292.2" y2="129.5" stroke="#1baf7a" stroke-width="2" stroke-linecap="round"/><circle cx="275.9" cy="129.5" r="5.5" fill="#ffffff" stroke="#1baf7a" stroke-width="2.5"/></g>
+<text x="664.0" y="133.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">−11.6 [−13.5, −9.8]</text>
+<text x="12.0" y="162.0" font-size="13" fill="#0b0b0b" text-anchor="start" font-weight="600">False-accepts (fewer is better)</text>
+<text x="188.0" y="188.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">vs Haiku 5.5</text>
+<g><title>False-accepts (fewer is better) vs Haiku 5.5: −6.4 points (95% CI −9.6 to −3.3)</title><line x1="293.2" y1="184.5" x2="350.5" y2="184.5" stroke="#eb6834" stroke-width="2" stroke-linecap="round"/><circle cx="322.7" cy="184.5" r="5" fill="#eb6834" stroke="#ffffff" stroke-width="2"/></g>
+<text x="664.0" y="188.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">−6.4 [−9.6, −3.3]</text>
+<text x="188.0" y="213.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">vs Haiku 5.5 + thinking</text>
+<g><title>False-accepts (fewer is better) vs Haiku 5.5 + thinking: −13.8 points (95% CI −16.9 to −11.1)</title><line x1="227.8" y1="209.5" x2="280.2" y2="209.5" stroke="#eb6834" stroke-width="2" stroke-linecap="round"/><circle cx="255.6" cy="209.5" r="5.5" fill="#ffffff" stroke="#eb6834" stroke-width="2.5"/></g>
+<text x="664.0" y="213.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">−13.8 [−16.9, −11.1]</text>
+<text x="188.0" y="238.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">vs Sonnet 5.5</text>
+<g><title>False-accepts (fewer is better) vs Sonnet 5.5: −9.1 points (95% CI −12.4 to −6.2)</title><line x1="268.7" y1="234.5" x2="324.4" y2="234.5" stroke="#1baf7a" stroke-width="2" stroke-linecap="round"/><circle cx="298.2" cy="234.5" r="5" fill="#1baf7a" stroke="#ffffff" stroke-width="2"/></g>
+<text x="664.0" y="238.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">−9.1 [−12.4, −6.2]</text>
+<text x="188.0" y="263.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">vs Sonnet 5.5 + thinking</text>
+<g><title>False-accepts (fewer is better) vs Sonnet 5.5 + thinking: −14.2 points (95% CI −17.3 to −11.3)</title><line x1="224.5" y1="259.5" x2="278.2" y2="259.5" stroke="#1baf7a" stroke-width="2" stroke-linecap="round"/><circle cx="252.1" cy="259.5" r="5.5" fill="#ffffff" stroke="#1baf7a" stroke-width="2.5"/></g>
+<text x="664.0" y="263.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">−14.2 [−17.3, −11.3]</text>
+<text x="12.0" y="292.0" font-size="13" fill="#0b0b0b" text-anchor="start" font-weight="600">False-rejects (fewer is better)</text>
+<text x="188.0" y="318.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">vs Haiku 5.5</text>
+<g><title>False-rejects (fewer is better) vs Haiku 5.5: 23.3 points (95% CI 19.3 to 27.1)</title><line x1="553.5" y1="314.5" x2="623.8" y2="314.5" stroke="#eb6834" stroke-width="2" stroke-linecap="round"/><circle cx="589.5" cy="314.5" r="5" fill="#eb6834" stroke="#ffffff" stroke-width="2"/></g>
+<text x="664.0" y="318.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">23.3 [19.3, 27.1]</text>
+<text x="188.0" y="343.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">vs Haiku 5.5 + thinking</text>
+<g><title>False-rejects (fewer is better) vs Haiku 5.5 + thinking: −7.6 points (95% CI −10.6 to −5.0)</title><line x1="284.6" y1="339.5" x2="335.2" y2="339.5" stroke="#eb6834" stroke-width="2" stroke-linecap="round"/><circle cx="312.0" cy="339.5" r="5.5" fill="#ffffff" stroke="#eb6834" stroke-width="2.5"/></g>
+<text x="664.0" y="343.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">−7.6 [−10.6, −5.0]</text>
+<text x="188.0" y="368.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">vs Sonnet 5.5</text>
+<g><title>False-rejects (fewer is better) vs Sonnet 5.5: 8.2 points (95% CI 4.7 to 11.5)</title><line x1="422.5" y1="364.5" x2="483.1" y2="364.5" stroke="#1baf7a" stroke-width="2" stroke-linecap="round"/><circle cx="453.6" cy="364.5" r="5" fill="#1baf7a" stroke="#ffffff" stroke-width="2"/></g>
+<text x="664.0" y="368.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">8.2 [4.7, 11.5]</text>
+<text x="188.0" y="393.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">vs Sonnet 5.5 + thinking</text>
+<g><title>False-rejects (fewer is better) vs Sonnet 5.5 + thinking: −8.9 points (95% CI −11.7 to −6.5)</title><line x1="275.1" y1="389.5" x2="321.1" y2="389.5" stroke="#1baf7a" stroke-width="2" stroke-linecap="round"/><circle cx="299.7" cy="389.5" r="5.5" fill="#ffffff" stroke="#1baf7a" stroke-width="2.5"/></g>
+<text x="664.0" y="393.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">−8.9 [−11.7, −6.5]</text>
+<text x="200.0" y="442.0" font-size="12" fill="#52514e" text-anchor="start" font-weight="400">◀ Jev worse</text>
+<text x="650.0" y="442.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">Jev better ▶</text>
+<text x="425.0" y="460.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">Jev advantage over the other judge, in percentage points (pooled binary items)</text>
+</svg>

@@ -1,0 +1,1879 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Can Jev Replace the LLM Judge? Measuring Correctness Before Speed</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+<style>
+:root { color-scheme: light; }
+html, body { background: #ffffff; margin: 0; }
+body { color: #0b0b0b; font-family: system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size: 17px; line-height: 1.65; }
+main { max-width: 800px; margin: 0 auto; padding: 48px 16px 96px; }
+h1 { font-size: 2.1rem; line-height: 1.2; margin: 0 0 8px; letter-spacing: -0.01em; }
+h2 { font-size: 1.45rem; margin: 2.4em 0 0.4em; padding-top: 0.4em; border-top: 1px solid #e8e7e3; }
+h3 { font-size: 1.15rem; margin: 1.8em 0 0.3em; }
+p, li { max-width: 70ch; }
+a { color: #1c5cab; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.88em; border: 1px solid #e8e7e3; border-radius: 4px; padding: 0 4px; }
+table { border-collapse: collapse; width: 100%; font-size: 0.84rem; line-height: 1.4; margin: 1.1em 0 1.5em; display: block; overflow-x: auto; }
+th, td { text-align: left; padding: 6px 9px; border-bottom: 1px solid #e8e7e3; vertical-align: top; }
+th { border-bottom: 1.5px solid #0b0b0b; font-weight: 600; }
+.fig { margin: 1.6em 0 2em; }
+.fig .cap { font-size: 0.86rem; color: #52514e; margin-top: 6px; max-width: 70ch; }
+.arithmatex { overflow-x: auto; }
+div.arithmatex { margin: 0.9em 0; }
+blockquote { margin: 1.4em 0; padding: 4px 0 4px 18px; border-left: 3px solid #2a78d6; color: #0b0b0b; }
+blockquote p { margin: 0.5em 0; }
+.toc { display: none; }
+@media (max-width: 600px) { body { font-size: 16px; } h1 { font-size: 1.7rem; } }
+</style>
+</head>
+<body>
+<main>
+<h1 id="can-jev-replace-the-llm-judge-measuring-correctness-before-speed">Can Jev Replace the LLM Judge? Measuring Correctness Before Speed</h1>
+<p><em>A pointwise comparison of Jev 1.13 with Claude Haiku 5.5 and Claude Sonnet 5.5, each used one-shot and with thinking, on binary correctness and rubric scoring. Experiments run in October 2026.</em></p>
+<h2 id="introduction">Introduction</h2>
+<p>Since TypeSafe introduced Jev as a System One decision model, there has been a lot of interest in using it wherever a system has to make a decision from a context and a question. Jev is built for fast, single-pass decisions: instead of generating text, it returns a typed answer together with calibrated probabilities [1].</p>
+<p>One task that fits this shape is evaluating the answers of another AI system. When a language model reads a question and a response and decides whether the response is good, that is <em>LLM-as-a-judge</em> [2]. With Jev getting attention, the natural next step is <em>Jev-as-a-judge</em>: put Jev in the judge's seat instead of an LLM.</p>
+<p>I wanted to find out how good Jev's decisions are compared with an LLM's, and to look at correctness before anything else. A judge that answers in 300 milliseconds is not worth much if its verdicts are wrong. The judge is a gate in the AI system lifecycle: it decides which model version ships, which responses pass a guardrail, which regressions block a release, which examples are kept as training data. If it is wrong, every decision downstream inherits the error, and latency and cost savings do not repair that. A judge that quietly passes one bad answer in six is not cheap; it moves the cost to wherever the bad answers surface.</p>
+<blockquote>
+<p><strong>In short</strong></p>
+<ul>
+<li><strong>One-shot LLMs:</strong> on binary correctness, Jev 1.13 and Claude Sonnet 5.5 are statistically tied (86.4% vs 86.8%; Jev minus Sonnet −0.5 points, 95% CI [−2.7, +1.7]). Jev is clearly ahead of Claude Haiku 5.5 (77.9%).</li>
+<li><strong>With thinking switched on, the LLM judges are clearly more accurate than Jev:</strong> Haiku 5.5 reaches 97.1% and Sonnet 5.5 97.9%, about 11 points above Jev, and their false-accept rates are 2.2% and 1.8% against 16.0% for Jev.</li>
+<li><strong>Thinking helps most where checking an answer means working it out:</strong> the gain is largest on math word problems (GSM8K), smaller on code (MBPP), and small on hallucination detection (HaluEval).</li>
+<li><strong>Jev's mistakes lean toward accepting wrong answers</strong> (16.0% of wrong answers accepted), but its probabilities are well calibrated (calibration error 0.019), which the Claude vote tallies are not.</li>
+<li><strong>Rubric scoring (0 to 4) is hard for every judge.</strong> Agreement with human ratings is moderate (quadratic weighted kappa 0.30 to 0.47) and thinking barely helps. Jev is level with the thinking judges there.</li>
+<li><strong>The price of thinking:</strong> Jev's median time per binary verdict was 0.31 s, against 3.91 s and 4.44 s for the thinking judges (about 13 to 14 times slower). The thinking judges also returned no verdict for 7 (Haiku) and 2 (Sonnet) of 1,100 items, because thinking used up the whole output limit.</li>
+</ul>
+</blockquote>
+<h2 id="what-is-being-evaluated">What is being evaluated?</h2>
+<p>The thing under test is the judge's <em>decision</em>, not the answers it looks at. Every judge gets one question and one candidate answer and has to decide on that pair alone. This is the <em>pointwise</em> setting. I chose it because in most agentic evaluation setups there is one question and one answer, and you need a verdict on it standing alone, not a comparison of two responses.</p>
+<p>I tested two kinds of decisions.</p>
+<p><strong>1. Binary correctness.</strong> Is the candidate answer correct or incorrect?</p>
+<p><strong>2. Rubric scoring.</strong> Score the response from 0 to 4 on three criteria: helpfulness, correctness and coherence. Each score level has a written description, such as "0: completely incorrect" up to "4: completely correct".</p>
+<p>The judges were tested on four datasets, chosen so that the "right" answer comes from somewhere other than another model's opinion:</p>
+<table>
+<thead>
+<tr>
+<th>Dataset</th>
+<th>What the judge sees</th>
+<th>Where the label comes from</th>
+<th>Items</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GSM8K [3] (math word problems)</td>
+<td>the problem and a final answer only</td>
+<td>correct: the gold answer. Incorrect: a near-miss number (off by one or ten, doubled or halved, digits swapped, or a number from the problem mixed in)</td>
+<td>400 (200 questions)</td>
+</tr>
+<tr>
+<td>MBPP [4] (Python functions)</td>
+<td>the task description, one visible example test, and the code</td>
+<td>by running the tests. Incorrect: the reference solution with a single edit (a flipped comparison, a changed operator or constant), kept only if it still runs and fails a test</td>
+<td>300 (150 questions)</td>
+</tr>
+<tr>
+<td>HaluEval QA [5] (question answering)</td>
+<td>the question, supporting knowledge, and an answer</td>
+<td>correct: the right answer. Incorrect: the dataset's hallucinated answer</td>
+<td>400 (200 questions)</td>
+</tr>
+<tr>
+<td>HelpSteer2 [6] (rubric)</td>
+<td>a prompt and a response</td>
+<td>human ratings from 0 to 4 on helpfulness, correctness and coherence</td>
+<td>300 responses</td>
+</tr>
+</tbody>
+</table>
+<p>The binary set has 1,100 items, half correct and half incorrect, so a judge that guesses scores 50%. For every question I included one correct and one incorrect candidate. Two details protect against shortcuts:</p>
+<ul>
+<li>GSM8K candidates are the final answer alone, so the judge has to solve the problem and cannot just read a worked solution.</li>
+<li>In HaluEval the hallucinated answers are mostly full sentences and the right answers are short phrases; length alone separates them with an AUROC of 0.97. I kept only questions where the two answers have similar length (within 0.8 to 1.25 times). After that, answer length predicts correctness at chance level (AUROC 0.50 to 0.51 on every source), so a judge cannot score well by reading the form of the answer.</li>
+</ul>
+<h2 id="how-it-is-evaluated-and-why-these-metrics">How it is evaluated, and why these metrics</h2>
+<h3 id="binary-correctness">Binary correctness</h3>
+<p>Each judge produces a probability that the candidate is correct. The verdict is whatever the judge itself says: <em>correct</em> if that probability is at least 0.5. I did not tune thresholds on any judge. Let <span class="arithmatex">\(TP\)</span>, <span class="arithmatex">\(TN\)</span>, <span class="arithmatex">\(FP\)</span> and <span class="arithmatex">\(FN\)</span> count correct answers accepted, incorrect answers rejected, incorrect answers accepted, and correct answers rejected.</p>
+<div class="arithmatex">\[
+\text{Accuracy}=\frac{TP+TN}{TP+TN+FP+FN}
+\]</div>
+<p>Accuracy alone hides the thing that matters for a gate, because the two kinds of mistakes have different costs. So I report them separately:</p>
+<div class="arithmatex">\[
+\text{False-accept rate}=\frac{FP}{FP+TN}
+\qquad
+\text{False-reject rate}=\frac{FN}{FN+TP}
+\]</div>
+<p>The false-accept rate is the share of wrong answers the judge lets through. The false-reject rate is the share of good answers it throws out. The Matthews correlation coefficient combines all four counts and equals 0 for a judge that is no better than guessing:</p>
+<div class="arithmatex">\[
+\text{MCC}=\frac{TP\cdot TN-FP\cdot FN}{\sqrt{(TP+FP)(TP+FN)(TN+FP)(TN+FN)}}
+\]</div>
+<p>I also look at how trustworthy the <em>probabilities</em> are, since they decide how much one can lean on a verdict (for example, by sending low-confidence cases to a stronger judge). The <em>AUROC</em> is the chance that a randomly picked correct answer gets a higher probability than a randomly picked incorrect one, so it measures ranking quality, independent of any threshold. The <em>expected calibration error</em> (ECE) compares stated confidence with actual accuracy. Group the items into confidence bins <span class="arithmatex">\(B_b\)</span> by <span class="arithmatex">\(c=\max(p,1-p)\)</span>:</p>
+<div class="arithmatex">\[
+\text{ECE}=\sum_{b}\frac{|B_b|}{N}\,\bigl|\,\text{acc}(B_b)-\text{conf}(B_b)\,\bigr|
+\]</div>
+<p>A perfectly calibrated judge has an ECE of 0: of the answers it calls 80% likely, it is right 80% of the time. AUROC and ECE need a graded probability, so they are only reported for judges that return one.</p>
+<p>If a judge returns no verdict for an item (for example, it ran out of output tokens), that item is left out of that judge's metrics and counted in a separate failure table. Because leaving failures out flatters a judge, I also give the accuracy with failures counted as wrong.</p>
+<h3 id="rubric-scoring">Rubric scoring</h3>
+<p>For each criterion, the judge gives a probability <span class="arithmatex">\(p_k\)</span> for each score level <span class="arithmatex">\(k=0,\dots,4\)</span>. Jev returns this distribution directly. Claude has no such output, so <span class="arithmatex">\(p_k\)</span> is the share of its samples that picked level <span class="arithmatex">\(k\)</span>. The judge's score is the expected value:</p>
+<div class="arithmatex">\[
+\hat{s}=\sum_{k=0}^{4} k\,p_k
+\]</div>
+<p>I then compare <span class="arithmatex">\(\hat{s}\)</span> with the human rating <span class="arithmatex">\(y\)</span>. Mean absolute error (MAE) measures the typical distance, and exact match (after rounding <span class="arithmatex">\(\hat{s}\)</span> to the nearest level) measures how often the judge hits the human score. Because the scale is ordinal, missing by one level is a smaller mistake than missing by four, so I also report <em>quadratic weighted kappa</em>, which penalizes disagreements by the square of their distance and corrects for chance agreement:</p>
+<div class="arithmatex">\[
+\kappa_w = 1-\frac{\sum_{i,j} w_{ij}\,O_{ij}}{\sum_{i,j} w_{ij}\,E_{ij}},
+\qquad
+w_{ij}=\frac{(i-j)^2}{(K-1)^2}
+\]</div>
+<p>Here <span class="arithmatex">\(O\)</span> is the observed table of (judge level, human level) pairs, <span class="arithmatex">\(E\)</span> is the table expected by chance, and <span class="arithmatex">\(K=5\)</span>. A kappa of 0 is chance and 1 is perfect agreement. Spearman's rank correlation checks whether the judge orders responses the way humans do. Human ratings are skewed toward high scores, so a trivial predictor looks decent. I therefore compare against the baseline of <em>always predicting the most common human score</em> for each criterion. This baseline peeks at the test labels, which makes it a strong one.</p>
+<h3 id="uncertainty-and-paired-comparisons">Uncertainty and paired comparisons</h3>
+<p>All 95% confidence intervals come from a bootstrap that resamples whole <em>questions</em>, not individual items, because the correct and incorrect candidates of one question are not independent. To compare two judges, I use a <em>paired</em> bootstrap on the same items. On each resample I recompute both judges' metric and take the difference <span class="arithmatex">\(\Delta=m(\text{judge A})-m(\text{judge B})\)</span>. The 2.5th and 97.5th percentiles of <span class="arithmatex">\(\Delta\)</span> over 1000 resamples form the interval. If it excludes 0, the gap is unlikely to be a sampling accident. Pairing matters because both judges tend to find the same items hard, and the pairing cancels that shared difficulty.</p>
+<h2 id="experimental-setup">Experimental setup</h2>
+<table>
+<thead>
+<tr>
+<th>Judge</th>
+<th>Model</th>
+<th>Thinking</th>
+<th>Samples per binary item / per rubric criterion</th>
+<th>Interface</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Jev 1.13</td>
+<td><code>jev-1.13.0</code> (version pinned)</td>
+<td>single pass</td>
+<td>1 call returns the probabilities</td>
+<td><code>langchain-typesafe</code></td>
+</tr>
+<tr>
+<td>Haiku 5.5</td>
+<td><code>claude-haiku-5-5</code></td>
+<td>off</td>
+<td>5 / 5</td>
+<td><code>langchain-anthropic</code></td>
+</tr>
+<tr>
+<td>Haiku 5.5 + thinking</td>
+<td><code>claude-haiku-5-5</code></td>
+<td>adaptive, effort <code>max</code></td>
+<td><strong>1 / 1</strong></td>
+<td><code>langchain-anthropic</code></td>
+</tr>
+<tr>
+<td>Sonnet 5.5</td>
+<td><code>claude-sonnet-5-5</code></td>
+<td>off</td>
+<td>5 / 5</td>
+<td><code>langchain-anthropic</code></td>
+</tr>
+<tr>
+<td>Sonnet 5.5 + thinking</td>
+<td><code>claude-sonnet-5-5</code></td>
+<td>adaptive, effort <code>max</code></td>
+<td><strong>1 / 1</strong></td>
+<td><code>langchain-anthropic</code></td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>Same information, same wording.</strong> All judges got the same instruction text and the same fields of each item. Jev received typed questions: a yes/no question for binary correctness, and one five-level <code>Score</code> question per rubric criterion, answered in a single request. Claude received the same text as a system prompt and the item as JSON.</li>
+<li><strong>A fair one-shot comparison.</strong> Jev decides in a single pass. To keep that comparison matched, the one-shot Claude arms were run with thinking turned off and low effort, and their reply was forced into a tiny structured object (<code>{"verdict": "YES"}</code> or <code>{"score": "3"}</code>). My first attempt only asked for "one word", and that did not work: on math and code items the models began solving the problem in the visible reply and ran out of tokens before giving a verdict (roughly a third of Haiku's and nearly 60% of Sonnet's binary verdicts were unparseable). Constraining the output removed that failure.</li>
+<li><strong>The thinking arms use the same prompt and the same structured reply</strong>, with thinking turned on. Forcing the reply keeps the reasoning in the model's hidden thinking, where it cannot steer the visible verdict, so the one-shot and thinking arms differ only in whether the model thinks. An earlier version of the thinking arm used free-text replies, and Sonnet wrote its working in the reply, which made the two arms impossible to compare. I discarded that run.</li>
+<li><strong>Adaptive thinking, and why effort is <code>max</code>.</strong> The newer Claude models use <em>adaptive thinking</em>: the model itself decides whether a question needs thinking at all and how much to think. The only control is the <em>effort</em> setting, because these models reject a fixed thinking budget. In my experiments, at effort <code>high</code> Sonnet did not think on many of the data points. In an earlier run at <code>high</code>, 83% of Sonnet's HaluEval verdicts and 78% of its rubric scores were produced with no thinking at all (the call used 8 output tokens or fewer); Haiku skipped thinking on 34% of HaluEval verdicts. In a small probe of 8 binary items, Sonnet thought on 2 at <code>high</code>, 5 at <code>xhigh</code> and all 8 at <code>max</code>. Haiku thought on most calls even at <code>high</code>. That is why the thinking arms run at effort <code>max</code>. In the final run thinking was present on 100% of Sonnet's and 99% of Haiku's binary calls. Every call's thinking summary is logged, so this is checkable.</li>
+<li><strong>One sample for the thinking arms, because of cost.</strong> Thinking calls are expensive, so the thinking arms use one sample per binary item and one per rubric criterion (<code>BINARY_SAMPLES = 1</code>, <code>RUBRIC_SAMPLES = 1</code>), while the one-shot arms use five. This has consequences. A single binary vote is 0 or 1, so the thinking arms have no graded probability, and AUROC and ECE are not reported for them. A single rubric sample gives an integer score where the one-shot arms average five, which makes the rubric comparison less like-for-like. For binary accuracy the effect should be small: for the one-shot arms, one call was as accurate as the five-vote majority (table below). I did not check this for the rubric. The two thinking arms cost about $22 in Claude API usage at list prices.</li>
+<li><strong>Sampling.</strong> The Claude 5.5 models reject non-default sampling settings, so every call ran at the default temperature. For the one-shot arms, a binary item's probability is the share of YES votes among five and the rubric probabilities are the shares of each level. Jev returns its probabilities from a single call.</li>
+<li><strong>Scale.</strong> The experiment made 51,145 logged judge calls, each with its raw output and, for the thinking arms, the thinking summary. Four items were evaluated at a time, and latency was measured on the client as wall-clock time per judged item.</li>
+<li><strong>Missing results.</strong> Some items have no result for a judge:</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Judge</th>
+<th>Task</th>
+<th>Items without a result</th>
+<th>Cause</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Haiku 5.5 + thinking</td>
+<td>binary</td>
+<td>7 of 1100</td>
+<td>7 thinking used all 16,000 output tokens before an answer</td>
+</tr>
+<tr>
+<td>Sonnet 5.5</td>
+<td>rubric</td>
+<td>2 of 300</td>
+<td>2 safety classifier refused</td>
+</tr>
+<tr>
+<td>Sonnet 5.5 + thinking</td>
+<td>binary</td>
+<td>2 of 1100</td>
+<td>2 thinking used all 16,000 output tokens before an answer</td>
+</tr>
+<tr>
+<td>Sonnet 5.5 + thinking</td>
+<td>rubric</td>
+<td>3 of 300</td>
+<td>2 safety classifier refused; 1 thinking used all 16,000 output tokens before an answer</td>
+</tr>
+</tbody>
+</table>
+<p>Two causes remain. The thinking judges sometimes used all 16,000 output tokens on thinking and returned no verdict, and Sonnet's safety classifier refused two of the 300 HelpSteer2 responses (the same two for both Sonnet arms, on every attempt). Failed items were retried twice (three attempts in all), which recovered some of them: the first pass left 13 Haiku and 7 Sonnet binary verdicts missing, and the retries cut that to the numbers in the table. In that first pass my API credit also ran out near the end of Sonnet's thinking rubric run, which left 21 responses unjudged; I topped up and retried them, so they are included in the results.</p>
+<h2 id="results">Results</h2>
+<h3 id="binary-correctness-overall-accuracy">Binary correctness: overall accuracy</h3>
+<table>
+<thead>
+<tr>
+<th>Judge</th>
+<th>Items judged</th>
+<th>Accuracy [95% CI]</th>
+<th>False-accept [CI]</th>
+<th>False-reject [CI]</th>
+<th>MCC</th>
+<th>AUROC</th>
+<th>ECE</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Jev 1.13</td>
+<td>1100</td>
+<td>86.4% [84.5, 88.4]</td>
+<td>16.0% [12.9, 18.9]</td>
+<td>11.3% [8.7, 14.0]</td>
+<td>0.73</td>
+<td>0.94</td>
+<td>0.019</td>
+</tr>
+<tr>
+<td>Haiku 5.5</td>
+<td>1100</td>
+<td>77.9% [75.7, 80.2]</td>
+<td>9.6% [7.1, 12.2]</td>
+<td>34.5% [30.5, 38.5]</td>
+<td>0.58</td>
+<td>0.81</td>
+<td>0.196</td>
+</tr>
+<tr>
+<td>Haiku 5.5 + thinking</td>
+<td>1093</td>
+<td>97.1% [96.0, 98.1]</td>
+<td>2.2% [1.1, 3.5]</td>
+<td>3.7% [2.2, 5.1]</td>
+<td>0.94</td>
+<td>–</td>
+<td>–</td>
+</tr>
+<tr>
+<td>Sonnet 5.5</td>
+<td>1100</td>
+<td>86.8% [84.7, 88.9]</td>
+<td>6.9% [4.9, 9.1]</td>
+<td>19.5% [16.2, 22.9]</td>
+<td>0.74</td>
+<td>0.88</td>
+<td>0.125</td>
+</tr>
+<tr>
+<td>Sonnet 5.5 + thinking</td>
+<td>1098</td>
+<td>97.9% [97.0, 98.7]</td>
+<td>1.8% [0.7, 2.9]</td>
+<td>2.4% [1.3, 3.6]</td>
+<td>0.96</td>
+<td>–</td>
+<td>–</td>
+</tr>
+</tbody>
+</table>
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 360" role="img" aria-label="Grouped columns: binary accuracy of the five judges on GSM8K, MBPP, HaluEval and all items pooled, with 95% confidence intervals." style="width:100%;height:auto;max-width:760px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#ffffff">
+<defs><pattern id="hatch1-eb6834" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#f7c6b2"/><rect width="3" height="6" fill="#eb6834"/></pattern><pattern id="hatch1-1baf7a" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#a8e1cc"/><rect width="3" height="6" fill="#1baf7a"/></pattern></defs>
+<rect width="760" height="360" fill="#ffffff"/>
+<text x="16.0" y="187.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400" transform="rotate(-90 16 187.0)">Accuracy</text>
+<line x1="56.0" y1="308.0" x2="746.0" y2="308.0" stroke="#bdbcb6" stroke-width="1"/>
+<text x="48.0" y="312.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">0%</text>
+<line x1="56.0" y1="259.6" x2="746.0" y2="259.6" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="263.6" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">20%</text>
+<line x1="56.0" y1="211.2" x2="746.0" y2="211.2" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="215.2" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">40%</text>
+<line x1="56.0" y1="162.8" x2="746.0" y2="162.8" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="166.8" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">60%</text>
+<line x1="56.0" y1="114.4" x2="746.0" y2="114.4" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="118.4" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">80%</text>
+<line x1="56.0" y1="66.0" x2="746.0" y2="66.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="70.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">100%</text>
+<line x1="56.0" y1="187.0" x2="746.0" y2="187.0" stroke="#8a8984" stroke-width="1"/>
+<g><title>Jev 1.13 · GSM8K: 80.8% (95% CI 77.0% to 84.8%)</title><path d="M78.2,308.0 L78.2,116.6 Q78.2,112.6 82.2,112.6 L98.2,112.6 Q102.2,112.6 102.2,116.6 L102.2,308.0 Z" fill="#2a78d6"/></g>
+<line x1="90.2" y1="121.7" x2="90.2" y2="102.9" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="87.2" y1="121.7" x2="93.2" y2="121.7" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="87.2" y1="102.9" x2="93.2" y2="102.9" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<text x="90.2" y="96.9" font-size="11.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">80.8%</text>
+<g><title>Haiku 5.5 · GSM8K: 62.7% (95% CI 59.2% to 66.2%)</title><path d="M104.2,308.0 L104.2,160.1 Q104.2,156.1 108.2,156.1 L124.2,156.1 Q128.2,156.1 128.2,160.1 L128.2,308.0 Z" fill="#eb6834"/></g>
+<line x1="116.2" y1="164.6" x2="116.2" y2="147.7" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="113.2" y1="164.6" x2="119.2" y2="164.6" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="113.2" y1="147.7" x2="119.2" y2="147.7" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Haiku 5.5 + thinking · GSM8K: 98.5% (95% CI 97.2% to 99.5%)</title><path d="M130.2,308.0 L130.2,73.7 Q130.2,69.7 134.2,69.7 L150.2,69.7 Q154.2,69.7 154.2,73.7 L154.2,308.0 Z" fill="url(#hatch1-eb6834)"/></g>
+<line x1="142.2" y1="72.7" x2="142.2" y2="67.2" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="139.2" y1="72.7" x2="145.2" y2="72.7" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="139.2" y1="67.2" x2="145.2" y2="67.2" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 · GSM8K: 76.2% (95% CI 72.0% to 80.0%)</title><path d="M156.2,308.0 L156.2,127.5 Q156.2,123.5 160.2,123.5 L176.2,123.5 Q180.2,123.5 180.2,127.5 L180.2,308.0 Z" fill="#1baf7a"/></g>
+<line x1="168.2" y1="133.8" x2="168.2" y2="114.4" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="165.2" y1="133.8" x2="171.2" y2="133.8" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="165.2" y1="114.4" x2="171.2" y2="114.4" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 + thinking · GSM8K: 98.8% (95% CI 97.5% to 99.8%)</title><path d="M182.2,308.0 L182.2,73.0 Q182.2,69.0 186.2,69.0 L202.2,69.0 Q206.2,69.0 206.2,73.0 L206.2,308.0 Z" fill="url(#hatch1-1baf7a)"/></g>
+<line x1="194.2" y1="72.0" x2="194.2" y2="66.6" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="191.2" y1="72.0" x2="197.2" y2="72.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="191.2" y1="66.6" x2="197.2" y2="66.6" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<text x="142.2" y="328.0" font-size="13" fill="#0b0b0b" text-anchor="middle" font-weight="600">GSM8K</text>
+<text x="142.2" y="344.0" font-size="11.5" fill="#52514e" text-anchor="middle" font-weight="400">400 items</text>
+<g><title>Jev 1.13 · MBPP: 84.0% (95% CI 80.3% to 87.7%)</title><path d="M250.8,308.0 L250.8,108.7 Q250.8,104.7 254.8,104.7 L270.8,104.7 Q274.8,104.7 274.8,108.7 L274.8,308.0 Z" fill="#2a78d6"/></g>
+<line x1="262.8" y1="113.6" x2="262.8" y2="95.8" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="259.8" y1="113.6" x2="265.8" y2="113.6" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="259.8" y1="95.8" x2="265.8" y2="95.8" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<text x="262.8" y="89.8" font-size="11.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">84.0%</text>
+<g><title>Haiku 5.5 · MBPP: 80.0% (95% CI 76.0% to 84.0%)</title><path d="M276.8,308.0 L276.8,118.4 Q276.8,114.4 280.8,114.4 L296.8,114.4 Q300.8,114.4 300.8,118.4 L300.8,308.0 Z" fill="#eb6834"/></g>
+<line x1="288.8" y1="124.1" x2="288.8" y2="104.7" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="285.8" y1="124.1" x2="291.8" y2="124.1" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="285.8" y1="104.7" x2="291.8" y2="104.7" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Haiku 5.5 + thinking · MBPP: 98.3% (95% CI 96.9% to 99.7%)</title><path d="M302.8,308.0 L302.8,74.1 Q302.8,70.1 306.8,70.1 L322.8,70.1 Q326.8,70.1 326.8,74.1 L326.8,308.0 Z" fill="url(#hatch1-eb6834)"/></g>
+<line x1="314.8" y1="73.4" x2="314.8" y2="66.8" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="311.8" y1="73.4" x2="317.8" y2="73.4" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="311.8" y1="66.8" x2="317.8" y2="66.8" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 · MBPP: 91.7% (95% CI 88.7% to 94.7%)</title><path d="M328.8,308.0 L328.8,90.2 Q328.8,86.2 332.8,86.2 L348.8,86.2 Q352.8,86.2 352.8,90.2 L352.8,308.0 Z" fill="#1baf7a"/></g>
+<line x1="340.8" y1="93.4" x2="340.8" y2="78.9" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="337.8" y1="93.4" x2="343.8" y2="93.4" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="337.8" y1="78.9" x2="343.8" y2="78.9" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 + thinking · MBPP: 99.7% (95% CI 99.0% to 100.0%)</title><path d="M354.8,308.0 L354.8,70.8 Q354.8,66.8 358.8,66.8 L374.8,66.8 Q378.8,66.8 378.8,70.8 L378.8,308.0 Z" fill="url(#hatch1-1baf7a)"/></g>
+<line x1="366.8" y1="68.4" x2="366.8" y2="66.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="363.8" y1="68.4" x2="369.8" y2="68.4" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="363.8" y1="66.0" x2="369.8" y2="66.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<text x="314.8" y="328.0" font-size="13" fill="#0b0b0b" text-anchor="middle" font-weight="600">MBPP</text>
+<text x="314.8" y="344.0" font-size="11.5" fill="#52514e" text-anchor="middle" font-weight="400">300 items</text>
+<g><title>Jev 1.13 · HaluEval: 93.8% (95% CI 91.0% to 95.8%)</title><path d="M423.2,308.0 L423.2,85.1 Q423.2,81.1 427.2,81.1 L443.2,81.1 Q447.2,81.1 447.2,85.1 L447.2,308.0 Z" fill="#2a78d6"/></g>
+<line x1="435.2" y1="87.8" x2="435.2" y2="76.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="432.2" y1="87.8" x2="438.2" y2="87.8" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="432.2" y1="76.3" x2="438.2" y2="76.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<text x="435.2" y="70.3" font-size="11.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">93.8%</text>
+<g><title>Haiku 5.5 · HaluEval: 91.5% (95% CI 88.5% to 94.5%)</title><path d="M449.2,308.0 L449.2,90.6 Q449.2,86.6 453.2,86.6 L469.2,86.6 Q473.2,86.6 473.2,90.6 L473.2,308.0 Z" fill="#eb6834"/></g>
+<line x1="461.2" y1="93.8" x2="461.2" y2="79.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="458.2" y1="93.8" x2="464.2" y2="93.8" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="458.2" y1="79.3" x2="464.2" y2="79.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Haiku 5.5 + thinking · HaluEval: 94.8% (95% CI 92.2% to 97.0%)</title><path d="M475.2,308.0 L475.2,82.7 Q475.2,78.7 479.2,78.7 L495.2,78.7 Q499.2,78.7 499.2,82.7 L499.2,308.0 Z" fill="url(#hatch1-eb6834)"/></g>
+<line x1="487.2" y1="84.8" x2="487.2" y2="73.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="484.2" y1="84.8" x2="490.2" y2="84.8" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="484.2" y1="73.3" x2="490.2" y2="73.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 · HaluEval: 93.8% (95% CI 91.2% to 96.0%)</title><path d="M501.2,308.0 L501.2,85.1 Q501.2,81.1 505.2,81.1 L521.2,81.1 Q525.2,81.1 525.2,85.1 L525.2,308.0 Z" fill="#1baf7a"/></g>
+<line x1="513.2" y1="87.2" x2="513.2" y2="75.7" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="510.2" y1="87.2" x2="516.2" y2="87.2" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="510.2" y1="75.7" x2="516.2" y2="75.7" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 + thinking · HaluEval: 95.7% (95% CI 93.5% to 97.5%)</title><path d="M527.2,308.0 L527.2,80.3 Q527.2,76.3 531.2,76.3 L547.2,76.3 Q551.2,76.3 551.2,80.3 L551.2,308.0 Z" fill="url(#hatch1-1baf7a)"/></g>
+<line x1="539.2" y1="81.7" x2="539.2" y2="72.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="536.2" y1="81.7" x2="542.2" y2="81.7" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="536.2" y1="72.0" x2="542.2" y2="72.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<text x="487.2" y="328.0" font-size="13" fill="#0b0b0b" text-anchor="middle" font-weight="600">HaluEval</text>
+<text x="487.2" y="344.0" font-size="11.5" fill="#52514e" text-anchor="middle" font-weight="400">400 items</text>
+<g><title>Jev 1.13 · All pooled: 86.4% (95% CI 84.5% to 88.4%)</title><path d="M595.8,308.0 L595.8,103.0 Q595.8,99.0 599.8,99.0 L615.8,99.0 Q619.8,99.0 619.8,103.0 L619.8,308.0 Z" fill="#2a78d6"/></g>
+<line x1="607.8" y1="103.6" x2="607.8" y2="94.2" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="604.8" y1="103.6" x2="610.8" y2="103.6" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="604.8" y1="94.2" x2="610.8" y2="94.2" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<text x="607.8" y="88.2" font-size="11.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">86.4%</text>
+<g><title>Haiku 5.5 · All pooled: 77.9% (95% CI 75.7% to 80.2%)</title><path d="M621.8,308.0 L621.8,123.5 Q621.8,119.5 625.8,119.5 L641.8,119.5 Q645.8,119.5 645.8,123.5 L645.8,308.0 Z" fill="#eb6834"/></g>
+<line x1="633.8" y1="124.7" x2="633.8" y2="114.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="630.8" y1="124.7" x2="636.8" y2="124.7" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="630.8" y1="114.0" x2="636.8" y2="114.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Haiku 5.5 + thinking · All pooled: 97.1% (95% CI 96.0% to 98.1%)</title><path d="M647.8,308.0 L647.8,77.1 Q647.8,73.1 651.8,73.1 L667.8,73.1 Q671.8,73.1 671.8,77.1 L671.8,308.0 Z" fill="url(#hatch1-eb6834)"/></g>
+<line x1="659.8" y1="75.6" x2="659.8" y2="70.7" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="656.8" y1="75.6" x2="662.8" y2="75.6" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="656.8" y1="70.7" x2="662.8" y2="70.7" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 · All pooled: 86.8% (95% CI 84.7% to 88.9%)</title><path d="M673.8,308.0 L673.8,101.9 Q673.8,97.9 677.8,97.9 L693.8,97.9 Q697.8,97.9 697.8,101.9 L697.8,308.0 Z" fill="#1baf7a"/></g>
+<line x1="685.8" y1="103.0" x2="685.8" y2="92.8" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="682.8" y1="103.0" x2="688.8" y2="103.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="682.8" y1="92.8" x2="688.8" y2="92.8" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 + thinking · All pooled: 97.9% (95% CI 97.0% to 98.7%)</title><path d="M699.8,308.0 L699.8,75.1 Q699.8,71.1 703.8,71.1 L719.8,71.1 Q723.8,71.1 723.8,75.1 L723.8,308.0 Z" fill="url(#hatch1-1baf7a)"/></g>
+<line x1="711.8" y1="73.3" x2="711.8" y2="69.1" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="708.8" y1="73.3" x2="714.8" y2="73.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="708.8" y1="69.1" x2="714.8" y2="69.1" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<text x="659.8" y="328.0" font-size="13" fill="#0b0b0b" text-anchor="middle" font-weight="600">All pooled</text>
+<text x="659.8" y="344.0" font-size="11.5" fill="#52514e" text-anchor="middle" font-weight="400">1100 items</text>
+<rect x="56.0" y="13.0" width="11" height="11" rx="2" fill="#2a78d6"/>
+<text x="74.0" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Jev 1.13</text>
+<rect x="146.2" y="13.0" width="11" height="11" rx="2" fill="#eb6834"/>
+<text x="164.2" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Haiku 5.5</text>
+<rect x="243.3" y="13.0" width="11" height="11" rx="2" fill="url(#hatch1-eb6834)"/>
+<text x="261.3" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Haiku 5.5 + thinking</text>
+<rect x="416.3" y="13.0" width="11" height="11" rx="2" fill="#1baf7a"/>
+<text x="434.3" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Sonnet 5.5</text>
+<rect x="520.3" y="13.0" width="11" height="11" rx="2" fill="url(#hatch1-1baf7a)"/>
+<text x="538.3" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Sonnet 5.5 + thinking</text>
+<line x1="56.0" y1="38.0" x2="70.0" y2="38.0" stroke="#8a8984" stroke-width="1"/>
+<text x="74.0" y="42.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">chance (50%)</text>
+</svg>
+<div class="cap">Figure 1. Binary accuracy by data source and pooled, with 95% confidence intervals (whiskers). Hatched bars are the thinking arms. The line marks chance (50%). Only Jev's bars are labeled; exact values for all judges are in the tables.</div>
+</div>
+
+<p>Among the one-shot judges, Jev (86.4%) and Sonnet (86.8%) are indistinguishable: the paired difference is −0.5 points with a 95% interval of [−2.7, +1.7]. Haiku is clearly behind (77.9%): Jev is ahead by 8.5 points (interval [+5.9, +10.6]).</p>
+<p>Switching thinking on changes the picture. Haiku with thinking reaches 97.1% and Sonnet with thinking 97.9%, and both are clearly ahead of Jev: Jev is behind Haiku-with-thinking by 10.7 points (interval [−12.7, −8.9]) and behind Sonnet-with-thinking by 11.6 points (interval [−13.5, −9.8]). Those accuracies are computed on the items where the judge returned a verdict. If the failed items are counted as wrong, they are 96.5% and 97.7%, which does not change the ranking.</p>
+<p>The pooled number averages over very different tasks:</p>
+<table>
+<thead>
+<tr>
+<th>Source</th>
+<th>Judge</th>
+<th>Items judged</th>
+<th>Accuracy [95% CI]</th>
+<th>False-accept</th>
+<th>False-reject</th>
+<th>MCC</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GSM8K</td>
+<td>Jev 1.13</td>
+<td>400</td>
+<td>80.8% [77.0, 84.8]</td>
+<td>23.5%</td>
+<td>15.0%</td>
+<td>0.62</td>
+</tr>
+<tr>
+<td></td>
+<td>Haiku 5.5</td>
+<td>400</td>
+<td>62.7% [59.2, 66.2]</td>
+<td>12.5%</td>
+<td>62.0%</td>
+<td>0.29</td>
+</tr>
+<tr>
+<td></td>
+<td>Haiku 5.5 + thinking</td>
+<td>397</td>
+<td>98.5% [97.2, 99.5]</td>
+<td>0.0%</td>
+<td>3.0%</td>
+<td>0.97</td>
+</tr>
+<tr>
+<td></td>
+<td>Sonnet 5.5</td>
+<td>400</td>
+<td>76.2% [72.0, 80.0]</td>
+<td>12.5%</td>
+<td>35.0%</td>
+<td>0.54</td>
+</tr>
+<tr>
+<td></td>
+<td>Sonnet 5.5 + thinking</td>
+<td>400</td>
+<td>98.8% [97.5, 99.8]</td>
+<td>0.0%</td>
+<td>2.5%</td>
+<td>0.98</td>
+</tr>
+<tr>
+<td>MBPP</td>
+<td>Jev 1.13</td>
+<td>300</td>
+<td>84.0% [80.3, 87.7]</td>
+<td>14.0%</td>
+<td>18.0%</td>
+<td>0.68</td>
+</tr>
+<tr>
+<td></td>
+<td>Haiku 5.5</td>
+<td>300</td>
+<td>80.0% [76.0, 84.0]</td>
+<td>8.0%</td>
+<td>32.0%</td>
+<td>0.62</td>
+</tr>
+<tr>
+<td></td>
+<td>Haiku 5.5 + thinking</td>
+<td>296</td>
+<td>98.3% [96.9, 99.7]</td>
+<td>0.0%</td>
+<td>3.4%</td>
+<td>0.97</td>
+</tr>
+<tr>
+<td></td>
+<td>Sonnet 5.5</td>
+<td>300</td>
+<td>91.7% [88.7, 94.7]</td>
+<td>3.3%</td>
+<td>13.3%</td>
+<td>0.84</td>
+</tr>
+<tr>
+<td></td>
+<td>Sonnet 5.5 + thinking</td>
+<td>299</td>
+<td>99.7% [99.0, 100.0]</td>
+<td>0.0%</td>
+<td>0.7%</td>
+<td>0.99</td>
+</tr>
+<tr>
+<td>HaluEval</td>
+<td>Jev 1.13</td>
+<td>400</td>
+<td>93.8% [91.0, 95.8]</td>
+<td>10.0%</td>
+<td>2.5%</td>
+<td>0.88</td>
+</tr>
+<tr>
+<td></td>
+<td>Haiku 5.5</td>
+<td>400</td>
+<td>91.5% [88.5, 94.5]</td>
+<td>8.0%</td>
+<td>9.0%</td>
+<td>0.83</td>
+</tr>
+<tr>
+<td></td>
+<td>Haiku 5.5 + thinking</td>
+<td>400</td>
+<td>94.8% [92.2, 97.0]</td>
+<td>6.0%</td>
+<td>4.5%</td>
+<td>0.90</td>
+</tr>
+<tr>
+<td></td>
+<td>Sonnet 5.5</td>
+<td>400</td>
+<td>93.8% [91.2, 96.0]</td>
+<td>4.0%</td>
+<td>8.5%</td>
+<td>0.88</td>
+</tr>
+<tr>
+<td></td>
+<td>Sonnet 5.5 + thinking</td>
+<td>399</td>
+<td>95.7% [93.5, 97.5]</td>
+<td>5.0%</td>
+<td>3.5%</td>
+<td>0.91</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>GSM8K (math).</strong> Jev 80.8% beats the one-shot judges (Sonnet 76.2%, Haiku 62.7%), but the thinking judges are near perfect (Haiku 98.5%, Sonnet 98.8%). A one-shot judge has to guess whether a number is right; a thinking judge can compute it.</li>
+<li><strong>MBPP (code).</strong> Sonnet one-shot is best of the one-shot judges at 91.7%; Jev is at 84.0% and Haiku at 80.0%. With thinking, Haiku reaches 98.3% and Sonnet 99.7%.</li>
+<li><strong>HaluEval (hallucination).</strong> Every judge is in the low to mid 90s: Jev 93.8%, Haiku 91.5%, Sonnet 93.8%, and with thinking 94.8% and 95.7%. Jev's gap to the thinking judges is small here (−1.0 points to Haiku with thinking, interval [−2.7, +0.7]; −2.0 points to Sonnet with thinking, interval [−3.5, −0.5]).</li>
+</ul>
+<p>The per-source differences are exploratory: the experiment was not designed to test each source separately, and I made no multiple-comparison correction.</p>
+<h3 id="how-much-does-thinking-help">How much does thinking help?</h3>
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 402" role="img" aria-label="Forest plot of the accuracy gain from enabling thinking for Haiku and Sonnet on each data source, with 95% confidence intervals." style="width:100%;height:auto;max-width:800px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#ffffff">
+<rect width="800" height="402" fill="#ffffff"/>
+<line x1="200.0" y1="12.0" x2="200.0" y2="332.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="200.0" y="350.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">0</text>
+<line x1="312.5" y1="12.0" x2="312.5" y2="332.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="312.5" y="350.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">10</text>
+<line x1="425.0" y1="12.0" x2="425.0" y2="332.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="425.0" y="350.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">20</text>
+<line x1="537.5" y1="12.0" x2="537.5" y2="332.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="537.5" y="350.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">30</text>
+<line x1="650.0" y1="12.0" x2="650.0" y2="332.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="650.0" y="350.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">40</text>
+<line x1="200.0" y1="12.0" x2="200.0" y2="332.0" stroke="#0b0b0b" stroke-width="1.25"/>
+<text x="12.0" y="32.0" font-size="13" fill="#0b0b0b" text-anchor="start" font-weight="600">GSM8K</text>
+<text x="188.0" y="58.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">Haiku 5.5</text>
+<g><title>GSM8K Haiku 5.5: 35.3 points (95% CI 31.8 to 38.7)</title><line x1="558.0" y1="54.5" x2="635.8" y2="54.5" stroke="#eb6834" stroke-width="2" stroke-linecap="round"/><circle cx="596.7" cy="54.5" r="5.5" fill="#ffffff" stroke="#eb6834" stroke-width="2.5"/></g>
+<text x="664.0" y="58.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">35.3 [31.8, 38.7]</text>
+<text x="188.0" y="83.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">Sonnet 5.5</text>
+<g><title>GSM8K Sonnet 5.5: 22.5 points (95% CI 19.0 to 26.0)</title><line x1="413.7" y1="79.5" x2="492.6" y2="79.5" stroke="#1baf7a" stroke-width="2" stroke-linecap="round"/><circle cx="453.1" cy="79.5" r="5.5" fill="#ffffff" stroke="#1baf7a" stroke-width="2.5"/></g>
+<text x="664.0" y="83.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">22.5 [19.0, 26.0]</text>
+<text x="12.0" y="112.0" font-size="13" fill="#0b0b0b" text-anchor="start" font-weight="600">MBPP</text>
+<text x="188.0" y="138.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">Haiku 5.5</text>
+<g><title>MBPP Haiku 5.5: 18.2 points (95% CI 14.4 to 22.1)</title><line x1="362.3" y1="134.5" x2="448.7" y2="134.5" stroke="#eb6834" stroke-width="2" stroke-linecap="round"/><circle cx="405.2" cy="134.5" r="5.5" fill="#ffffff" stroke="#eb6834" stroke-width="2.5"/></g>
+<text x="664.0" y="138.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">18.2 [14.4, 22.1]</text>
+<text x="188.0" y="163.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">Sonnet 5.5</text>
+<g><title>MBPP Sonnet 5.5: 8.0 points (95% CI 5.3 to 11.0)</title><line x1="260.0" y1="159.5" x2="324.2" y2="159.5" stroke="#1baf7a" stroke-width="2" stroke-linecap="round"/><circle cx="290.3" cy="159.5" r="5.5" fill="#ffffff" stroke="#1baf7a" stroke-width="2.5"/></g>
+<text x="664.0" y="163.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">8.0 [5.3, 11.0]</text>
+<text x="12.0" y="192.0" font-size="13" fill="#0b0b0b" text-anchor="start" font-weight="600">HaluEval</text>
+<text x="188.0" y="218.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">Haiku 5.5</text>
+<g><title>HaluEval Haiku 5.5: 3.2 points (95% CI 1.0 to 5.2)</title><line x1="211.2" y1="214.5" x2="259.1" y2="214.5" stroke="#eb6834" stroke-width="2" stroke-linecap="round"/><circle cx="236.6" cy="214.5" r="5.5" fill="#ffffff" stroke="#eb6834" stroke-width="2.5"/></g>
+<text x="664.0" y="218.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">3.2 [1.0, 5.2]</text>
+<text x="188.0" y="243.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">Sonnet 5.5</text>
+<g><title>HaluEval Sonnet 5.5: 2.0 points (95% CI 0.3 to 3.8)</title><line x1="202.8" y1="239.5" x2="242.3" y2="239.5" stroke="#1baf7a" stroke-width="2" stroke-linecap="round"/><circle cx="222.6" cy="239.5" r="5.5" fill="#ffffff" stroke="#1baf7a" stroke-width="2.5"/></g>
+<text x="664.0" y="243.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">2.0 [0.3, 3.8]</text>
+<text x="12.0" y="272.0" font-size="13" fill="#0b0b0b" text-anchor="start" font-weight="600">All pooled</text>
+<text x="188.0" y="298.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">Haiku 5.5</text>
+<g><title>All pooled Haiku 5.5: 18.9 points (95% CI 16.5 to 21.2)</title><line x1="386.1" y1="294.5" x2="438.6" y2="294.5" stroke="#eb6834" stroke-width="2" stroke-linecap="round"/><circle cx="413.1" cy="294.5" r="5.5" fill="#ffffff" stroke="#eb6834" stroke-width="2.5"/></g>
+<text x="664.0" y="298.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">18.9 [16.5, 21.2]</text>
+<text x="188.0" y="323.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">Sonnet 5.5</text>
+<g><title>All pooled Sonnet 5.5: 11.1 points (95% CI 9.2 to 12.9)</title><line x1="303.5" y1="319.5" x2="344.7" y2="319.5" stroke="#1baf7a" stroke-width="2" stroke-linecap="round"/><circle cx="325.0" cy="319.5" r="5.5" fill="#ffffff" stroke="#1baf7a" stroke-width="2.5"/></g>
+<text x="664.0" y="323.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">11.1 [9.2, 12.9]</text>
+<text x="200.0" y="372.0" font-size="12" fill="#52514e" text-anchor="start" font-weight="400">no gain</text>
+<text x="650.0" y="372.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">gain ▶</text>
+<text x="425.0" y="390.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">Accuracy gain from thinking, in percentage points (thinking arm minus the same model one-shot)</text>
+</svg>
+<div class="cap">Figure 2. Accuracy gain from enabling thinking (thinking arm minus the same model one-shot), by data source, with 95% confidence intervals.</div>
+</div>
+
+<table>
+<thead>
+<tr>
+<th>Slice</th>
+<th>Comparison</th>
+<th>Items</th>
+<th>Δ accuracy (pts)</th>
+<th>Δ false-accept (pts)</th>
+<th>Δ false-reject (pts)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>All pooled</td>
+<td>Haiku 5.5: thinking − one-shot</td>
+<td>1093</td>
+<td>+18.9 [+16.5, +21.2]</td>
+<td>−7.5 [−9.8, −5.1]</td>
+<td>−30.6 [−34.6, −26.6]</td>
+</tr>
+<tr>
+<td></td>
+<td>Sonnet 5.5: thinking − one-shot</td>
+<td>1098</td>
+<td>+11.1 [+9.2, +12.9]</td>
+<td>−5.1 [−7.1, −3.1]</td>
+<td>−17.1 [−20.0, −13.9]</td>
+</tr>
+<tr>
+<td>GSM8K</td>
+<td>Haiku 5.5: thinking − one-shot</td>
+<td>397</td>
+<td>+35.3 [+31.8, +38.7]</td>
+<td>−12.5 [−17.0, −8.5]</td>
+<td>−58.4 [−65.0, −51.5]</td>
+</tr>
+<tr>
+<td></td>
+<td>Sonnet 5.5: thinking − one-shot</td>
+<td>400</td>
+<td>+22.5 [+19.0, +26.0]</td>
+<td>−12.5 [−17.5, −8.0]</td>
+<td>−32.5 [−39.0, −26.0]</td>
+</tr>
+<tr>
+<td>MBPP</td>
+<td>Haiku 5.5: thinking − one-shot</td>
+<td>296</td>
+<td>+18.2 [+14.4, +22.1]</td>
+<td>−8.0 [−12.7, −4.0]</td>
+<td>−28.8 [−36.6, −21.9]</td>
+</tr>
+<tr>
+<td></td>
+<td>Sonnet 5.5: thinking − one-shot</td>
+<td>299</td>
+<td>+8.0 [+5.3, +11.0]</td>
+<td>−3.3 [−6.7, −0.7]</td>
+<td>−12.8 [−18.7, −8.0]</td>
+</tr>
+<tr>
+<td>HaluEval</td>
+<td>Haiku 5.5: thinking − one-shot</td>
+<td>400</td>
+<td>+3.2 [+1.0, +5.2]</td>
+<td>−2.0 [−5.0, +0.5]</td>
+<td>−4.5 [−8.0, −1.5]</td>
+</tr>
+<tr>
+<td></td>
+<td>Sonnet 5.5: thinking − one-shot</td>
+<td>399</td>
+<td>+2.0 [+0.3, +3.8]</td>
+<td>+1.0 [−1.0, +3.0]</td>
+<td>−5.0 [−8.0, −2.0]</td>
+</tr>
+</tbody>
+</table>
+<p>Thinking raises accuracy by +18.9 points for Haiku (interval [+16.5, +21.2]) and +11.1 points for Sonnet (interval [+9.2, +12.9]), and it lowers both error types. The gain depends on the data. It is largest on GSM8K (+35.3 points for Haiku, +22.5 for Sonnet), where verifying means doing the arithmetic, smaller on MBPP (+18.2 and +8.0), and small on HaluEval (+3.2 and +2.0), where the answer mostly has to be checked against the supplied knowledge. Haiku, the smaller model, gains more than Sonnet.</p>
+<p>How much the models thought also depended on the data. With effort <code>max</code>, the number of output tokens per call (which includes the hidden thinking) was:</p>
+<table>
+<thead>
+<tr>
+<th>Arm (effort max)</th>
+<th>Slice</th>
+<th>Calls</th>
+<th>Mean output tokens</th>
+<th>Median</th>
+<th>95th pct</th>
+<th>Max</th>
+<th>Calls with thinking</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Haiku 5.5 + thinking</td>
+<td>GSM8K</td>
+<td>406</td>
+<td>597</td>
+<td>333</td>
+<td>2149</td>
+<td>10,018</td>
+<td>100%</td>
+</tr>
+<tr>
+<td></td>
+<td>MBPP</td>
+<td>316</td>
+<td>2027</td>
+<td>788</td>
+<td>8494</td>
+<td>15,778</td>
+<td>100%</td>
+</tr>
+<tr>
+<td></td>
+<td>HaluEval</td>
+<td>404</td>
+<td>585</td>
+<td>228</td>
+<td>2231</td>
+<td>14,791</td>
+<td>98%</td>
+</tr>
+<tr>
+<td></td>
+<td>All binary</td>
+<td>1126</td>
+<td>980</td>
+<td>334</td>
+<td>4157</td>
+<td>15,778</td>
+<td>99%</td>
+</tr>
+<tr>
+<td></td>
+<td>Rubric</td>
+<td>906</td>
+<td>1998</td>
+<td>1362</td>
+<td>5934</td>
+<td>13,944</td>
+<td>100%</td>
+</tr>
+<tr>
+<td>Sonnet 5.5 + thinking</td>
+<td>GSM8K</td>
+<td>402</td>
+<td>361</td>
+<td>176</td>
+<td>823</td>
+<td>12,046</td>
+<td>100%</td>
+</tr>
+<tr>
+<td></td>
+<td>MBPP</td>
+<td>308</td>
+<td>868</td>
+<td>381</td>
+<td>3053</td>
+<td>15,021</td>
+<td>100%</td>
+</tr>
+<tr>
+<td></td>
+<td>HaluEval</td>
+<td>404</td>
+<td>466</td>
+<td>152</td>
+<td>1465</td>
+<td>15,462</td>
+<td>99%</td>
+</tr>
+<tr>
+<td></td>
+<td>All binary</td>
+<td>1114</td>
+<td>537</td>
+<td>194</td>
+<td>1963</td>
+<td>15,462</td>
+<td>100%</td>
+</tr>
+<tr>
+<td></td>
+<td>Rubric</td>
+<td>1038</td>
+<td>1024</td>
+<td>722</td>
+<td>2735</td>
+<td>13,911</td>
+<td>100%</td>
+</tr>
+</tbody>
+</table>
+<p>Code questions made the models think the longest, and a few calls ran for thousands of tokens. A thinking budget is therefore not a fixed cost per item, which matters for both latency and spend.</p>
+<h3 id="the-two-judges-make-different-mistakes">The two judges make different mistakes</h3>
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 340" role="img" aria-label="Grouped columns: pooled false-accept rate (wrong answers marked correct) and false-reject rate (correct answers marked incorrect) for the five judges, with 95% confidence intervals." style="width:100%;height:auto;max-width:760px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#ffffff">
+<defs><pattern id="hatch2-eb6834" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#f7c6b2"/><rect width="3" height="6" fill="#eb6834"/></pattern><pattern id="hatch2-1baf7a" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#a8e1cc"/><rect width="3" height="6" fill="#1baf7a"/></pattern></defs>
+<rect width="760" height="340" fill="#ffffff"/>
+<text x="16.0" y="167.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400" transform="rotate(-90 16 167.0)">Share of the relevant answers</text>
+<line x1="56.0" y1="288.0" x2="746.0" y2="288.0" stroke="#bdbcb6" stroke-width="1"/>
+<text x="48.0" y="292.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">0%</text>
+<line x1="56.0" y1="227.5" x2="746.0" y2="227.5" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="231.5" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">10%</text>
+<line x1="56.0" y1="167.0" x2="746.0" y2="167.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="171.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">20%</text>
+<line x1="56.0" y1="106.5" x2="746.0" y2="106.5" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="110.5" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">30%</text>
+<line x1="56.0" y1="46.0" x2="746.0" y2="46.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="50.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">40%</text>
+<g><title>Jev 1.13 · False-accept rate: 16.0% (95% CI 12.9% to 18.9%)</title><path d="M164.5,288.0 L164.5,195.2 Q164.5,191.2 168.5,191.2 L184.5,191.2 Q188.5,191.2 188.5,195.2 L188.5,288.0 Z" fill="#2a78d6"/></g>
+<line x1="176.5" y1="209.9" x2="176.5" y2="173.6" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="173.5" y1="209.9" x2="179.5" y2="209.9" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="173.5" y1="173.6" x2="179.5" y2="173.6" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<text x="176.5" y="167.6" font-size="11.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">16.0%</text>
+<g><title>Haiku 5.5 · False-accept rate: 9.6% (95% CI 7.1% to 12.2%)</title><path d="M190.5,288.0 L190.5,233.7 Q190.5,229.7 194.5,229.7 L210.5,229.7 Q214.5,229.7 214.5,233.7 L214.5,288.0 Z" fill="#eb6834"/></g>
+<line x1="202.5" y1="245.1" x2="202.5" y2="214.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="199.5" y1="245.1" x2="205.5" y2="245.1" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="199.5" y1="214.3" x2="205.5" y2="214.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Haiku 5.5 + thinking · False-accept rate: 2.2% (95% CI 1.1% to 3.5%)</title><path d="M216.5,288.0 L216.5,278.8 Q216.5,274.8 220.5,274.8 L236.5,274.8 Q240.5,274.8 240.5,278.8 L240.5,288.0 Z" fill="url(#hatch2-eb6834)"/></g>
+<line x1="228.5" y1="281.4" x2="228.5" y2="267.1" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="225.5" y1="281.4" x2="231.5" y2="281.4" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="225.5" y1="267.1" x2="231.5" y2="267.1" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 · False-accept rate: 6.9% (95% CI 4.9% to 9.1%)</title><path d="M242.5,288.0 L242.5,250.2 Q242.5,246.2 246.5,246.2 L262.5,246.2 Q266.5,246.2 266.5,250.2 L266.5,288.0 Z" fill="#1baf7a"/></g>
+<line x1="254.5" y1="258.3" x2="254.5" y2="233.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="251.5" y1="258.3" x2="257.5" y2="258.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="251.5" y1="233.0" x2="257.5" y2="233.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 + thinking · False-accept rate: 1.8% (95% CI 0.7% to 2.9%)</title><path d="M268.5,288.0 L268.5,281.0 Q268.5,277.0 272.5,277.0 L288.5,277.0 Q292.5,277.0 292.5,281.0 L292.5,288.0 Z" fill="url(#hatch2-1baf7a)"/></g>
+<line x1="280.5" y1="283.6" x2="280.5" y2="270.4" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="277.5" y1="283.6" x2="283.5" y2="283.6" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="277.5" y1="270.4" x2="283.5" y2="270.4" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<text x="228.5" y="308.0" font-size="13" fill="#0b0b0b" text-anchor="middle" font-weight="600">False-accept rate</text>
+<text x="228.5" y="324.0" font-size="11.5" fill="#52514e" text-anchor="middle" font-weight="400">of the 550 incorrect answers, share accepted</text>
+<g><title>Jev 1.13 · False-reject rate: 11.3% (95% CI 8.7% to 14.0%)</title><path d="M509.5,288.0 L509.5,223.8 Q509.5,219.8 513.5,219.8 L529.5,219.8 Q533.5,219.8 533.5,223.8 L533.5,288.0 Z" fill="#2a78d6"/></g>
+<line x1="521.5" y1="235.2" x2="521.5" y2="203.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="518.5" y1="235.2" x2="524.5" y2="235.2" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="518.5" y1="203.3" x2="524.5" y2="203.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<text x="521.5" y="197.3" font-size="11.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">11.3%</text>
+<g><title>Haiku 5.5 · False-reject rate: 34.5% (95% CI 30.5% to 38.5%)</title><path d="M535.5,288.0 L535.5,83.0 Q535.5,79.0 539.5,79.0 L555.5,79.0 Q559.5,79.0 559.5,83.0 L559.5,288.0 Z" fill="#eb6834"/></g>
+<line x1="547.5" y1="103.2" x2="547.5" y2="54.8" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="544.5" y1="103.2" x2="550.5" y2="103.2" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="544.5" y1="54.8" x2="550.5" y2="54.8" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Haiku 5.5 + thinking · False-reject rate: 3.7% (95% CI 2.2% to 5.1%)</title><path d="M561.5,288.0 L561.5,269.7 Q561.5,265.7 565.5,265.7 L581.5,265.7 Q585.5,265.7 585.5,269.7 L585.5,288.0 Z" fill="url(#hatch2-eb6834)"/></g>
+<line x1="573.5" y1="274.7" x2="573.5" y2="256.9" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="570.5" y1="274.7" x2="576.5" y2="274.7" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="570.5" y1="256.9" x2="576.5" y2="256.9" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 · False-reject rate: 19.5% (95% CI 16.2% to 22.9%)</title><path d="M587.5,288.0 L587.5,174.3 Q587.5,170.3 591.5,170.3 L607.5,170.3 Q611.5,170.3 611.5,174.3 L611.5,288.0 Z" fill="#1baf7a"/></g>
+<line x1="599.5" y1="190.1" x2="599.5" y2="149.4" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="596.5" y1="190.1" x2="602.5" y2="190.1" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="596.5" y1="149.4" x2="602.5" y2="149.4" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 + thinking · False-reject rate: 2.4% (95% CI 1.3% to 3.6%)</title><path d="M613.5,288.0 L613.5,277.7 Q613.5,273.7 617.5,273.7 L633.5,273.7 Q637.5,273.7 637.5,277.7 L637.5,288.0 Z" fill="url(#hatch2-1baf7a)"/></g>
+<line x1="625.5" y1="280.3" x2="625.5" y2="266.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="622.5" y1="280.3" x2="628.5" y2="280.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="622.5" y1="266.0" x2="628.5" y2="266.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<text x="573.5" y="308.0" font-size="13" fill="#0b0b0b" text-anchor="middle" font-weight="600">False-reject rate</text>
+<text x="573.5" y="324.0" font-size="11.5" fill="#52514e" text-anchor="middle" font-weight="400">of the 550 correct answers, share rejected</text>
+<rect x="56.0" y="13.0" width="11" height="11" rx="2" fill="#2a78d6"/>
+<text x="74.0" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Jev 1.13</text>
+<rect x="146.2" y="13.0" width="11" height="11" rx="2" fill="#eb6834"/>
+<text x="164.2" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Haiku 5.5</text>
+<rect x="243.3" y="13.0" width="11" height="11" rx="2" fill="url(#hatch2-eb6834)"/>
+<text x="261.3" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Haiku 5.5 + thinking</text>
+<rect x="416.3" y="13.0" width="11" height="11" rx="2" fill="#1baf7a"/>
+<text x="434.3" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Sonnet 5.5</text>
+<rect x="520.3" y="13.0" width="11" height="11" rx="2" fill="url(#hatch2-1baf7a)"/>
+<text x="538.3" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Sonnet 5.5 + thinking</text>
+</svg>
+<div class="cap">Figure 3. Pooled false-accept rate (incorrect answers marked correct) and false-reject rate (correct answers marked incorrect), with 95% confidence intervals. Hatched bars are the thinking arms. Only Jev's bars are labeled.</div>
+</div>
+
+<p>Equal accuracy does not mean equal behavior. Among the one-shot judges, Jev leans toward accepting: it let through 16.0% of the wrong answers and rejected 11.3% of the correct ones. Sonnet leans toward rejecting: 6.9% of wrong answers accepted and 19.5% of correct ones rejected. One-shot Haiku is the most conservative, with a false-reject rate of 34.5% (it called more than a third of the correct answers wrong).</p>
+<p>The thinking judges are better on both counts: false-accept rates of 2.2% (Haiku) and 1.8% (Sonnet), and false-reject rates of 3.7% and 2.4%. Jev's higher false-accept rate shows up in every source against Sonnet one-shot (23.5% against 12.5% on GSM8K, 14.0% against 3.3% on MBPP, and 10.0% against 4.0% on HaluEval). For a quality gate this is the number to watch, because a false accept lets a bad answer through unnoticed.</p>
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 472" role="img" aria-label="Forest plot of paired differences between Jev and each of the four Claude judges for accuracy, false-accept rate and false-reject rate, with 95% confidence intervals; positive values favour Jev." style="width:100%;height:auto;max-width:800px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#ffffff">
+<rect width="800" height="472" fill="#ffffff"/>
+<line x1="200.0" y1="12.0" x2="200.0" y2="402.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="200.0" y="420.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">−20</text>
+<line x1="290.0" y1="12.0" x2="290.0" y2="402.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="290.0" y="420.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">−10</text>
+<line x1="380.0" y1="12.0" x2="380.0" y2="402.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="380.0" y="420.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">0</text>
+<line x1="470.0" y1="12.0" x2="470.0" y2="402.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="470.0" y="420.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">10</text>
+<line x1="560.0" y1="12.0" x2="560.0" y2="402.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="560.0" y="420.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">20</text>
+<line x1="650.0" y1="12.0" x2="650.0" y2="402.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="650.0" y="420.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">30</text>
+<line x1="380.0" y1="12.0" x2="380.0" y2="402.0" stroke="#0b0b0b" stroke-width="1.25"/>
+<text x="12.0" y="32.0" font-size="13" fill="#0b0b0b" text-anchor="start" font-weight="600">Accuracy</text>
+<text x="188.0" y="58.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">vs Haiku 5.5</text>
+<g><title>Accuracy vs Haiku 5.5: 8.5 points (95% CI 5.9 to 10.6)</title><line x1="433.2" y1="54.5" x2="475.7" y2="54.5" stroke="#eb6834" stroke-width="2" stroke-linecap="round"/><circle cx="456.1" cy="54.5" r="5" fill="#eb6834" stroke="#ffffff" stroke-width="2"/></g>
+<text x="664.0" y="58.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">8.5 [5.9, 10.6]</text>
+<text x="188.0" y="83.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">vs Haiku 5.5 + thinking</text>
+<g><title>Accuracy vs Haiku 5.5 + thinking: −10.7 points (95% CI −12.7 to −8.9)</title><line x1="265.5" y1="79.5" x2="300.1" y2="79.5" stroke="#eb6834" stroke-width="2" stroke-linecap="round"/><circle cx="283.7" cy="79.5" r="5.5" fill="#ffffff" stroke="#eb6834" stroke-width="2.5"/></g>
+<text x="664.0" y="83.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">−10.7 [−12.7, −8.9]</text>
+<text x="188.0" y="108.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">vs Sonnet 5.5</text>
+<g><title>Accuracy vs Sonnet 5.5: −0.5 points (95% CI −2.7 to 1.7)</title><line x1="355.5" y1="104.5" x2="395.5" y2="104.5" stroke="#1baf7a" stroke-width="2" stroke-linecap="round"/><circle cx="375.9" cy="104.5" r="5" fill="#1baf7a" stroke="#ffffff" stroke-width="2"/></g>
+<text x="664.0" y="108.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">−0.5 [−2.7, 1.7]</text>
+<text x="188.0" y="133.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">vs Sonnet 5.5 + thinking</text>
+<g><title>Accuracy vs Sonnet 5.5 + thinking: −11.6 points (95% CI −13.5 to −9.8)</title><line x1="258.6" y1="129.5" x2="292.2" y2="129.5" stroke="#1baf7a" stroke-width="2" stroke-linecap="round"/><circle cx="275.9" cy="129.5" r="5.5" fill="#ffffff" stroke="#1baf7a" stroke-width="2.5"/></g>
+<text x="664.0" y="133.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">−11.6 [−13.5, −9.8]</text>
+<text x="12.0" y="162.0" font-size="13" fill="#0b0b0b" text-anchor="start" font-weight="600">False-accepts (fewer is better)</text>
+<text x="188.0" y="188.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">vs Haiku 5.5</text>
+<g><title>False-accepts (fewer is better) vs Haiku 5.5: −6.4 points (95% CI −9.6 to −3.3)</title><line x1="293.2" y1="184.5" x2="350.5" y2="184.5" stroke="#eb6834" stroke-width="2" stroke-linecap="round"/><circle cx="322.7" cy="184.5" r="5" fill="#eb6834" stroke="#ffffff" stroke-width="2"/></g>
+<text x="664.0" y="188.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">−6.4 [−9.6, −3.3]</text>
+<text x="188.0" y="213.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">vs Haiku 5.5 + thinking</text>
+<g><title>False-accepts (fewer is better) vs Haiku 5.5 + thinking: −13.8 points (95% CI −16.9 to −11.1)</title><line x1="227.8" y1="209.5" x2="280.2" y2="209.5" stroke="#eb6834" stroke-width="2" stroke-linecap="round"/><circle cx="255.6" cy="209.5" r="5.5" fill="#ffffff" stroke="#eb6834" stroke-width="2.5"/></g>
+<text x="664.0" y="213.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">−13.8 [−16.9, −11.1]</text>
+<text x="188.0" y="238.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">vs Sonnet 5.5</text>
+<g><title>False-accepts (fewer is better) vs Sonnet 5.5: −9.1 points (95% CI −12.4 to −6.2)</title><line x1="268.7" y1="234.5" x2="324.4" y2="234.5" stroke="#1baf7a" stroke-width="2" stroke-linecap="round"/><circle cx="298.2" cy="234.5" r="5" fill="#1baf7a" stroke="#ffffff" stroke-width="2"/></g>
+<text x="664.0" y="238.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">−9.1 [−12.4, −6.2]</text>
+<text x="188.0" y="263.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">vs Sonnet 5.5 + thinking</text>
+<g><title>False-accepts (fewer is better) vs Sonnet 5.5 + thinking: −14.2 points (95% CI −17.3 to −11.3)</title><line x1="224.5" y1="259.5" x2="278.2" y2="259.5" stroke="#1baf7a" stroke-width="2" stroke-linecap="round"/><circle cx="252.1" cy="259.5" r="5.5" fill="#ffffff" stroke="#1baf7a" stroke-width="2.5"/></g>
+<text x="664.0" y="263.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">−14.2 [−17.3, −11.3]</text>
+<text x="12.0" y="292.0" font-size="13" fill="#0b0b0b" text-anchor="start" font-weight="600">False-rejects (fewer is better)</text>
+<text x="188.0" y="318.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">vs Haiku 5.5</text>
+<g><title>False-rejects (fewer is better) vs Haiku 5.5: 23.3 points (95% CI 19.3 to 27.1)</title><line x1="553.5" y1="314.5" x2="623.8" y2="314.5" stroke="#eb6834" stroke-width="2" stroke-linecap="round"/><circle cx="589.5" cy="314.5" r="5" fill="#eb6834" stroke="#ffffff" stroke-width="2"/></g>
+<text x="664.0" y="318.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">23.3 [19.3, 27.1]</text>
+<text x="188.0" y="343.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">vs Haiku 5.5 + thinking</text>
+<g><title>False-rejects (fewer is better) vs Haiku 5.5 + thinking: −7.6 points (95% CI −10.6 to −5.0)</title><line x1="284.6" y1="339.5" x2="335.2" y2="339.5" stroke="#eb6834" stroke-width="2" stroke-linecap="round"/><circle cx="312.0" cy="339.5" r="5.5" fill="#ffffff" stroke="#eb6834" stroke-width="2.5"/></g>
+<text x="664.0" y="343.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">−7.6 [−10.6, −5.0]</text>
+<text x="188.0" y="368.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">vs Sonnet 5.5</text>
+<g><title>False-rejects (fewer is better) vs Sonnet 5.5: 8.2 points (95% CI 4.7 to 11.5)</title><line x1="422.5" y1="364.5" x2="483.1" y2="364.5" stroke="#1baf7a" stroke-width="2" stroke-linecap="round"/><circle cx="453.6" cy="364.5" r="5" fill="#1baf7a" stroke="#ffffff" stroke-width="2"/></g>
+<text x="664.0" y="368.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">8.2 [4.7, 11.5]</text>
+<text x="188.0" y="393.5" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">vs Sonnet 5.5 + thinking</text>
+<g><title>False-rejects (fewer is better) vs Sonnet 5.5 + thinking: −8.9 points (95% CI −11.7 to −6.5)</title><line x1="275.1" y1="389.5" x2="321.1" y2="389.5" stroke="#1baf7a" stroke-width="2" stroke-linecap="round"/><circle cx="299.7" cy="389.5" r="5.5" fill="#ffffff" stroke="#1baf7a" stroke-width="2.5"/></g>
+<text x="664.0" y="393.5" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="400">−8.9 [−11.7, −6.5]</text>
+<text x="200.0" y="442.0" font-size="12" fill="#52514e" text-anchor="start" font-weight="400">◀ Jev worse</text>
+<text x="650.0" y="442.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">Jev better ▶</text>
+<text x="425.0" y="460.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">Jev advantage over the other judge, in percentage points (pooled binary items)</text>
+</svg>
+<div class="cap">Figure 4. Paired differences between Jev and each Claude judge on the pooled binary items, in percentage points, with 95% confidence intervals. Positive values favour Jev (for the two error rates the sign is flipped, so fewer errors count as an advantage). A hollow dot marks a thinking arm.</div>
+</div>
+
+<table>
+<thead>
+<tr>
+<th>Slice</th>
+<th>Comparison</th>
+<th>Items</th>
+<th>Δ accuracy (pts)</th>
+<th>Δ false-accept (pts)</th>
+<th>Δ false-reject (pts)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>All pooled</td>
+<td>Jev − Haiku 5.5</td>
+<td>1100</td>
+<td>+8.5 [+5.9, +10.6]</td>
+<td>+6.4 [+3.3, +9.6]</td>
+<td>−23.3 [−27.1, −19.3]</td>
+</tr>
+<tr>
+<td></td>
+<td>Jev − Haiku 5.5 + thinking</td>
+<td>1093</td>
+<td>−10.7 [−12.7, −8.9]</td>
+<td>+13.8 [+11.1, +16.9]</td>
+<td>+7.6 [+5.0, +10.6]</td>
+</tr>
+<tr>
+<td></td>
+<td>Jev − Sonnet 5.5</td>
+<td>1100</td>
+<td>−0.5 [−2.7, +1.7]</td>
+<td>+9.1 [+6.2, +12.4]</td>
+<td>−8.2 [−11.5, −4.7]</td>
+</tr>
+<tr>
+<td></td>
+<td>Jev − Sonnet 5.5 + thinking</td>
+<td>1098</td>
+<td>−11.6 [−13.5, −9.8]</td>
+<td>+14.2 [+11.3, +17.3]</td>
+<td>+8.9 [+6.5, +11.7]</td>
+</tr>
+<tr>
+<td>GSM8K</td>
+<td>Jev − Haiku 5.5</td>
+<td>400</td>
+<td>+18.0 [+13.2, +22.7]</td>
+<td>+11.0 [+4.0, +17.5]</td>
+<td>−47.0 [−54.5, −39.5]</td>
+</tr>
+<tr>
+<td></td>
+<td>Jev − Haiku 5.5 + thinking</td>
+<td>397</td>
+<td>−17.6 [−21.3, −13.9]</td>
+<td>+23.5 [+17.5, +29.0]</td>
+<td>+11.7 [+6.6, +17.1]</td>
+</tr>
+<tr>
+<td></td>
+<td>Jev − Sonnet 5.5</td>
+<td>400</td>
+<td>+4.5 [−0.3, +9.3]</td>
+<td>+11.0 [+4.0, +17.5]</td>
+<td>−20.0 [−27.0, −12.5]</td>
+</tr>
+<tr>
+<td></td>
+<td>Jev − Sonnet 5.5 + thinking</td>
+<td>400</td>
+<td>−18.0 [−21.8, −14.0]</td>
+<td>+23.5 [+17.5, +29.0]</td>
+<td>+12.5 [+7.5, +18.0]</td>
+</tr>
+<tr>
+<td>MBPP</td>
+<td>Jev − Haiku 5.5</td>
+<td>300</td>
+<td>+4.0 [−0.3, +8.7]</td>
+<td>+6.0 [0.0, +12.0]</td>
+<td>−14.0 [−21.3, −6.0]</td>
+</tr>
+<tr>
+<td></td>
+<td>Jev − Haiku 5.5 + thinking</td>
+<td>296</td>
+<td>−14.5 [−18.4, −10.5]</td>
+<td>+14.0 [+9.3, +20.0]</td>
+<td>+15.1 [+8.5, +21.9]</td>
+</tr>
+<tr>
+<td></td>
+<td>Jev − Sonnet 5.5</td>
+<td>300</td>
+<td>−7.7 [−12.0, −3.3]</td>
+<td>+10.7 [+5.3, +16.0]</td>
+<td>+4.7 [−2.7, +12.0]</td>
+</tr>
+<tr>
+<td></td>
+<td>Jev − Sonnet 5.5 + thinking</td>
+<td>299</td>
+<td>−15.7 [−19.4, −12.0]</td>
+<td>+14.0 [+9.3, +20.0]</td>
+<td>+17.4 [+12.0, +23.6]</td>
+</tr>
+<tr>
+<td>HaluEval</td>
+<td>Jev − Haiku 5.5</td>
+<td>400</td>
+<td>+2.2 [0.0, +4.5]</td>
+<td>+2.0 [−1.5, +6.0]</td>
+<td>−6.5 [−10.0, −3.5]</td>
+</tr>
+<tr>
+<td></td>
+<td>Jev − Haiku 5.5 + thinking</td>
+<td>400</td>
+<td>−1.0 [−2.7, +0.7]</td>
+<td>+4.0 [+1.0, +7.0]</td>
+<td>−2.0 [−4.0, −0.5]</td>
+</tr>
+<tr>
+<td></td>
+<td>Jev − Sonnet 5.5</td>
+<td>400</td>
+<td>0.0 [−2.2, +2.2]</td>
+<td>+6.0 [+3.0, +9.5]</td>
+<td>−6.0 [−9.5, −3.0]</td>
+</tr>
+<tr>
+<td></td>
+<td>Jev − Sonnet 5.5 + thinking</td>
+<td>399</td>
+<td>−2.0 [−3.5, −0.5]</td>
+<td>+5.0 [+2.0, +8.0]</td>
+<td>−1.0 [−2.5, 0.0]</td>
+</tr>
+</tbody>
+</table>
+<h3 id="can-the-probabilities-be-trusted">Can the probabilities be trusted?</h3>
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 380" role="img" aria-label="Reliability diagram: stated confidence against actual accuracy for the judges that return graded probabilities, pooled over all binary items." style="width:100%;height:auto;max-width:760px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#ffffff">
+<rect width="760" height="380" fill="#ffffff"/>
+<line x1="56.0" y1="328.0" x2="570.0" y2="328.0" stroke="#bdbcb6" stroke-width="1"/>
+<text x="48.0" y="332.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">30%</text>
+<line x1="56.0" y1="284.0" x2="570.0" y2="284.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="288.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">40%</text>
+<line x1="56.0" y1="240.0" x2="570.0" y2="240.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="244.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">50%</text>
+<line x1="56.0" y1="196.0" x2="570.0" y2="196.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="200.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">60%</text>
+<line x1="56.0" y1="152.0" x2="570.0" y2="152.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="156.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">70%</text>
+<line x1="56.0" y1="108.0" x2="570.0" y2="108.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="112.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">80%</text>
+<line x1="56.0" y1="64.0" x2="570.0" y2="64.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="68.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">90%</text>
+<line x1="56.0" y1="20.0" x2="570.0" y2="20.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="24.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">100%</text>
+<text x="56.0" y="346.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">50%</text>
+<text x="158.8" y="346.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">60%</text>
+<text x="261.6" y="346.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">70%</text>
+<text x="364.4" y="346.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">80%</text>
+<text x="467.2" y="346.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">90%</text>
+<text x="570.0" y="346.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">100%</text>
+<text x="313.0" y="370.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">Stated confidence  max(p, 1 − p)</text>
+<text x="16.0" y="174.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400" transform="rotate(-90 16 174.0)">Actual accuracy</text>
+<line x1="56.0" y1="240.0" x2="570.0" y2="20.0" stroke="#8a8984" stroke-width="1.25"/>
+<polyline points="105.8,194.3 201.8,187.4 303.3,142.0 415.1,67.8 538.9,32.5" fill="none" stroke="#2a78d6" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<g><title>Jev 1.13: confidence 0.55, accuracy 60.4%, n = 106</title><circle cx="105.8" cy="194.3" r="5.4" fill="#2a78d6" stroke="#ffffff" stroke-width="2"/></g>
+<g><title>Jev 1.13: confidence 0.64, accuracy 61.9%, n = 113</title><circle cx="201.8" cy="187.4" r="5.5" fill="#2a78d6" stroke="#ffffff" stroke-width="2"/></g>
+<g><title>Jev 1.13: confidence 0.74, accuracy 72.3%, n = 119</title><circle cx="303.3" cy="142.0" r="5.5" fill="#2a78d6" stroke="#ffffff" stroke-width="2"/></g>
+<g><title>Jev 1.13: confidence 0.85, accuracy 89.1%, n = 129</title><circle cx="415.1" cy="67.8" r="5.6" fill="#2a78d6" stroke="#ffffff" stroke-width="2"/></g>
+<g><title>Jev 1.13: confidence 0.97, accuracy 97.2%, n = 633</title><circle cx="538.9" cy="32.5" r="7.5" fill="#2a78d6" stroke="#ffffff" stroke-width="2"/></g>
+<circle cx="592" cy="40" r="5" fill="#2a78d6" stroke="#ffffff" stroke-width="2"/>
+<text x="604.0" y="44.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Jev 1.13</text>
+<polyline points="158.8,288.3 364.4,208.6 570.0,105.1" fill="none" stroke="#eb6834" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<g><title>Haiku 5.5: confidence 0.60, accuracy 39.0%, n = 41</title><circle cx="158.8" cy="288.3" r="4.9" fill="#eb6834" stroke="#ffffff" stroke-width="2"/></g>
+<g><title>Haiku 5.5: confidence 0.80, accuracy 57.1%, n = 56</title><circle cx="364.4" cy="208.6" r="5.0" fill="#eb6834" stroke="#ffffff" stroke-width="2"/></g>
+<g><title>Haiku 5.5: confidence 1.00, accuracy 80.7%, n = 1003</title><circle cx="570.0" cy="105.1" r="8.4" fill="#eb6834" stroke="#ffffff" stroke-width="2"/></g>
+<circle cx="592" cy="62" r="5" fill="#eb6834" stroke="#ffffff" stroke-width="2"/>
+<text x="604.0" y="66.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Haiku 5.5</text>
+<polyline points="364.4,297.9 570.0,72.5" fill="none" stroke="#1baf7a" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<g><title>Sonnet 5.5: confidence 0.80, accuracy 36.8%, n = 19</title><circle cx="364.4" cy="297.9" r="4.6" fill="#1baf7a" stroke="#ffffff" stroke-width="2"/></g>
+<g><title>Sonnet 5.5: confidence 1.00, accuracy 88.1%, n = 1072</title><circle cx="570.0" cy="72.5" r="8.5" fill="#1baf7a" stroke="#ffffff" stroke-width="2"/></g>
+<circle cx="592" cy="84" r="5" fill="#1baf7a" stroke="#ffffff" stroke-width="2"/>
+<text x="604.0" y="88.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Sonnet 5.5</text>
+<line x1="583" y1="106" x2="601" y2="106" stroke="#8a8984" stroke-width="1.25"/>
+<text x="604.0" y="110.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">perfect calibration</text>
+<text x="584.0" y="146.0" font-size="11.5" fill="#52514e" text-anchor="start" font-weight="400">Marker area ∝ number of</text>
+<text x="584.0" y="161.0" font-size="11.5" fill="#52514e" text-anchor="start" font-weight="400">items (bins with n &lt; 10</text>
+<text x="584.0" y="176.0" font-size="11.5" fill="#52514e" text-anchor="start" font-weight="400">are omitted).</text>
+</svg>
+<div class="cap">Figure 5. Reliability diagram on the pooled binary items for the judges that return graded probabilities. A judge on the diagonal is calibrated: when it states 80% confidence, it is right 80% of the time. Marker area is proportional to the number of items in the confidence bin. The thinking arms are absent because one sample gives only 0 or 1.</div>
+</div>
+
+<p>Jev's ranking quality is high (AUROC 0.94, against 0.88 for Sonnet and 0.81 for Haiku, both one-shot) and its calibration error is small (ECE 0.019, against 0.125 and 0.196). In the diagram, Jev's points sit close to the diagonal across the whole range: 58% of its verdicts are made with at least 90% confidence, and those are right 97.2% of the time.</p>
+<p>The one-shot Claude judges behave differently. Because their probability comes from five votes, almost every item lands in the top bin: 91% of Haiku's and 97% of Sonnet's items got five identical votes. Those unanimous verdicts were right only 80.7% (Haiku) and 88.1% (Sonnet) of the time. Agreement between samples is not the same as being correct: a model can be consistently wrong. For the thinking judges I cannot say how well calibrated they are, since one sample gives no probability.</p>
+<p>One caveat for fairness: the one-shot Claude probabilities have only six possible values (0, 0.2, ..., 1), while Jev's are continuous, which by itself makes AUROC and ECE harder to compare. The comparison is still informative about <em>usefulness</em>: Jev's confidence can be used to decide when to trust a verdict, and the Claude vote tallies mostly cannot.</p>
+<p>How much does the five-sample protocol matter for the one-shot accuracy? Very little:</p>
+<table>
+<thead>
+<tr>
+<th>Judge (one-shot)</th>
+<th>Accuracy, 5-vote majority</th>
+<th>Accuracy, one call</th>
+<th>False-accept, one call</th>
+<th>False-reject, one call</th>
+<th>Items with 5/5 identical votes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Haiku 5.5</td>
+<td>77.9%</td>
+<td>78.1%</td>
+<td>9.9%</td>
+<td>33.9%</td>
+<td>91.2%</td>
+</tr>
+<tr>
+<td>Sonnet 5.5</td>
+<td>86.8%</td>
+<td>86.9%</td>
+<td>6.9%</td>
+<td>19.2%</td>
+<td>97.5%</td>
+</tr>
+</tbody>
+</table>
+<p>A single one-shot call is as accurate as the five-vote majority, because the votes agree on 91.2% (Haiku) and 97.5% (Sonnet) of the items. The five samples mainly buy the coarse probabilities. This is the reason I am fairly relaxed about the thinking arms using one sample for the binary task.</p>
+<h3 id="rubric-scoring_1">Rubric scoring</h3>
+<table>
+<thead>
+<tr>
+<th>Criterion</th>
+<th>Judge</th>
+<th>n</th>
+<th>Exact match</th>
+<th>MAE [95% CI]</th>
+<th>QWK [95% CI]</th>
+<th>Spearman</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Helpfulness</td>
+<td><em>most common human score</em></td>
+<td>300</td>
+<td>42.3%</td>
+<td>1.07</td>
+<td>0.00</td>
+<td>–</td>
+</tr>
+<tr>
+<td></td>
+<td>Jev 1.13</td>
+<td>300</td>
+<td>33.0%</td>
+<td>0.99 [0.90, 1.07]</td>
+<td>0.44 [0.35, 0.52]</td>
+<td>0.46</td>
+</tr>
+<tr>
+<td></td>
+<td>Haiku 5.5</td>
+<td>300</td>
+<td>31.7%</td>
+<td>0.91 [0.83, 1.00]</td>
+<td>0.46 [0.37, 0.55]</td>
+<td>0.43</td>
+</tr>
+<tr>
+<td></td>
+<td>Haiku 5.5 + thinking</td>
+<td>300</td>
+<td>32.0%</td>
+<td>1.02 [0.92, 1.12]</td>
+<td>0.41 [0.32, 0.50]</td>
+<td>0.44</td>
+</tr>
+<tr>
+<td></td>
+<td>Sonnet 5.5</td>
+<td>298</td>
+<td>29.5%</td>
+<td>1.06 [0.95, 1.17]</td>
+<td>0.41 [0.31, 0.50]</td>
+<td>0.43</td>
+</tr>
+<tr>
+<td></td>
+<td>Sonnet 5.5 + thinking</td>
+<td>298</td>
+<td>29.5%</td>
+<td>1.05 [0.95, 1.15]</td>
+<td>0.40 [0.31, 0.49]</td>
+<td>0.43</td>
+</tr>
+<tr>
+<td>Correctness</td>
+<td><em>most common human score</em></td>
+<td>300</td>
+<td>47.3%</td>
+<td>0.97</td>
+<td>0.00</td>
+<td>–</td>
+</tr>
+<tr>
+<td></td>
+<td>Jev 1.13</td>
+<td>300</td>
+<td>31.0%</td>
+<td>1.00 [0.92, 1.10]</td>
+<td>0.40 [0.30, 0.49]</td>
+<td>0.44</td>
+</tr>
+<tr>
+<td></td>
+<td>Haiku 5.5</td>
+<td>300</td>
+<td>32.3%</td>
+<td>1.00 [0.90, 1.09]</td>
+<td>0.41 [0.31, 0.50]</td>
+<td>0.40</td>
+</tr>
+<tr>
+<td></td>
+<td>Haiku 5.5 + thinking</td>
+<td>300</td>
+<td>33.7%</td>
+<td>0.96 [0.86, 1.07]</td>
+<td>0.41 [0.31, 0.51]</td>
+<td>0.41</td>
+</tr>
+<tr>
+<td></td>
+<td>Sonnet 5.5</td>
+<td>298</td>
+<td>32.6%</td>
+<td>1.09 [0.98, 1.21]</td>
+<td>0.40 [0.31, 0.49]</td>
+<td>0.46</td>
+</tr>
+<tr>
+<td></td>
+<td>Sonnet 5.5 + thinking</td>
+<td>297</td>
+<td>37.7%</td>
+<td>0.89 [0.78, 1.00]</td>
+<td>0.47 [0.38, 0.57]</td>
+<td>0.47</td>
+</tr>
+<tr>
+<td>Coherence</td>
+<td><em>most common human score</em></td>
+<td>300</td>
+<td>73.3%</td>
+<td>0.35</td>
+<td>0.00</td>
+<td>–</td>
+</tr>
+<tr>
+<td></td>
+<td>Jev 1.13</td>
+<td>300</td>
+<td>51.7%</td>
+<td>0.60 [0.54, 0.65]</td>
+<td>0.30 [0.18, 0.41]</td>
+<td>0.29</td>
+</tr>
+<tr>
+<td></td>
+<td>Haiku 5.5</td>
+<td>300</td>
+<td>49.3%</td>
+<td>0.65 [0.58, 0.73]</td>
+<td>0.33 [0.21, 0.44]</td>
+<td>0.31</td>
+</tr>
+<tr>
+<td></td>
+<td>Haiku 5.5 + thinking</td>
+<td>300</td>
+<td>46.0%</td>
+<td>0.62 [0.54, 0.69]</td>
+<td>0.30 [0.20, 0.39]</td>
+<td>0.30</td>
+</tr>
+<tr>
+<td></td>
+<td>Sonnet 5.5</td>
+<td>298</td>
+<td>37.6%</td>
+<td>0.79 [0.71, 0.87]</td>
+<td>0.30 [0.20, 0.40]</td>
+<td>0.35</td>
+</tr>
+<tr>
+<td></td>
+<td>Sonnet 5.5 + thinking</td>
+<td>298</td>
+<td>50.7%</td>
+<td>0.55 [0.48, 0.61]</td>
+<td>0.38 [0.27, 0.49]</td>
+<td>0.35</td>
+</tr>
+</tbody>
+</table>
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 360" role="img" aria-label="Grouped columns: mean absolute error of each judge&#x27;s expected score against human ratings for helpfulness, correctness and coherence, with a marker for the error of always predicting the most common human score." style="width:100%;height:auto;max-width:760px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#ffffff">
+<defs><pattern id="hatch6-eb6834" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#f7c6b2"/><rect width="3" height="6" fill="#eb6834"/></pattern><pattern id="hatch6-1baf7a" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#a8e1cc"/><rect width="3" height="6" fill="#1baf7a"/></pattern></defs>
+<rect width="760" height="360" fill="#ffffff"/>
+<text x="16.0" y="187.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400" transform="rotate(-90 16 187.0)">Mean absolute error (0–4 scale; lower is better)</text>
+<line x1="56.0" y1="308.0" x2="746.0" y2="308.0" stroke="#bdbcb6" stroke-width="1"/>
+<text x="48.0" y="312.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">0.00</text>
+<line x1="56.0" y1="273.4" x2="746.0" y2="273.4" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="277.4" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">0.20</text>
+<line x1="56.0" y1="238.9" x2="746.0" y2="238.9" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="242.9" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">0.40</text>
+<line x1="56.0" y1="204.3" x2="746.0" y2="204.3" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="208.3" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">0.60</text>
+<line x1="56.0" y1="169.7" x2="746.0" y2="169.7" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="173.7" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">0.80</text>
+<line x1="56.0" y1="135.1" x2="746.0" y2="135.1" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="139.1" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">1.00</text>
+<line x1="56.0" y1="100.6" x2="746.0" y2="100.6" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="104.6" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">1.20</text>
+<line x1="56.0" y1="66.0" x2="746.0" y2="66.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="70.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">1.40</text>
+<g><title>Jev 1.13 · Helpfulness: 0.99 (95% CI 0.90 to 1.07)</title><path d="M107.0,308.0 L107.0,141.6 Q107.0,137.6 111.0,137.6 L127.0,137.6 Q131.0,137.6 131.0,141.6 L131.0,308.0 Z" fill="#2a78d6"/></g>
+<line x1="119.0" y1="152.1" x2="119.0" y2="122.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="116.0" y1="152.1" x2="122.0" y2="152.1" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="116.0" y1="122.3" x2="122.0" y2="122.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<text x="119.0" y="116.3" font-size="11.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">0.99</text>
+<g><title>Haiku 5.5 · Helpfulness: 0.91 (95% CI 0.83 to 1.00)</title><path d="M133.0,308.0 L133.0,153.9 Q133.0,149.9 137.0,149.9 L153.0,149.9 Q157.0,149.9 157.0,153.9 L157.0,308.0 Z" fill="#eb6834"/></g>
+<line x1="145.0" y1="164.3" x2="145.0" y2="134.6" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="142.0" y1="164.3" x2="148.0" y2="164.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="142.0" y1="134.6" x2="148.0" y2="134.6" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Haiku 5.5 + thinking · Helpfulness: 1.02 (95% CI 0.92 to 1.12)</title><path d="M159.0,308.0 L159.0,136.3 Q159.0,132.3 163.0,132.3 L179.0,132.3 Q183.0,132.3 183.0,136.3 L183.0,308.0 Z" fill="url(#hatch6-eb6834)"/></g>
+<line x1="171.0" y1="149.5" x2="171.0" y2="114.4" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="168.0" y1="149.5" x2="174.0" y2="149.5" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="168.0" y1="114.4" x2="174.0" y2="114.4" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 · Helpfulness: 1.06 (95% CI 0.95 to 1.17)</title><path d="M185.0,308.0 L185.0,128.5 Q185.0,124.5 189.0,124.5 L205.0,124.5 Q209.0,124.5 209.0,128.5 L209.0,308.0 Z" fill="#1baf7a"/></g>
+<line x1="197.0" y1="143.5" x2="197.0" y2="105.6" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="194.0" y1="143.5" x2="200.0" y2="143.5" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="194.0" y1="105.6" x2="200.0" y2="105.6" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 + thinking · Helpfulness: 1.05 (95% CI 0.95 to 1.15)</title><path d="M211.0,308.0 L211.0,131.0 Q211.0,127.0 215.0,127.0 L231.0,127.0 Q235.0,127.0 235.0,131.0 L235.0,308.0 Z" fill="url(#hatch6-1baf7a)"/></g>
+<line x1="223.0" y1="143.8" x2="223.0" y2="108.5" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="220.0" y1="143.8" x2="226.0" y2="143.8" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="220.0" y1="108.5" x2="226.0" y2="108.5" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>always predict the most common human score: 1.07</title><line x1="102.0" y1="123.0" x2="240.0" y2="123.0" stroke="#0b0b0b" stroke-width="2.5"/></g>
+<text x="171.0" y="328.0" font-size="13" fill="#0b0b0b" text-anchor="middle" font-weight="600">Helpfulness</text>
+<g><title>Jev 1.13 · Correctness: 1.00 (95% CI 0.92 to 1.10)</title><path d="M337.0,308.0 L337.0,138.5 Q337.0,134.5 341.0,134.5 L357.0,134.5 Q361.0,134.5 361.0,138.5 L361.0,308.0 Z" fill="#2a78d6"/></g>
+<line x1="349.0" y1="148.9" x2="349.0" y2="118.2" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="346.0" y1="148.9" x2="352.0" y2="148.9" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="346.0" y1="118.2" x2="352.0" y2="118.2" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<text x="349.0" y="112.2" font-size="11.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">1.00</text>
+<g><title>Haiku 5.5 · Correctness: 1.00 (95% CI 0.90 to 1.09)</title><path d="M363.0,308.0 L363.0,139.7 Q363.0,135.7 367.0,135.7 L383.0,135.7 Q387.0,135.7 387.0,139.7 L387.0,308.0 Z" fill="#eb6834"/></g>
+<line x1="375.0" y1="152.9" x2="375.0" y2="119.1" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="372.0" y1="152.9" x2="378.0" y2="152.9" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="372.0" y1="119.1" x2="378.0" y2="119.1" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Haiku 5.5 + thinking · Correctness: 0.96 (95% CI 0.86 to 1.07)</title><path d="M389.0,308.0 L389.0,146.1 Q389.0,142.1 393.0,142.1 L409.0,142.1 Q413.0,142.1 413.0,146.1 L413.0,308.0 Z" fill="url(#hatch6-eb6834)"/></g>
+<line x1="401.0" y1="158.8" x2="401.0" y2="123.6" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="398.0" y1="158.8" x2="404.0" y2="158.8" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="398.0" y1="123.6" x2="404.0" y2="123.6" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 · Correctness: 1.09 (95% CI 0.98 to 1.21)</title><path d="M415.0,308.0 L415.0,122.9 Q415.0,118.9 419.0,118.9 L435.0,118.9 Q439.0,118.9 439.0,122.9 L439.0,308.0 Z" fill="#1baf7a"/></g>
+<line x1="427.0" y1="138.7" x2="427.0" y2="98.7" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="424.0" y1="138.7" x2="430.0" y2="138.7" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="424.0" y1="98.7" x2="430.0" y2="98.7" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 + thinking · Correctness: 0.89 (95% CI 0.78 to 1.00)</title><path d="M441.0,308.0 L441.0,157.8 Q441.0,153.8 445.0,153.8 L461.0,153.8 Q465.0,153.8 465.0,157.8 L465.0,308.0 Z" fill="url(#hatch6-1baf7a)"/></g>
+<line x1="453.0" y1="172.4" x2="453.0" y2="135.7" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="450.0" y1="172.4" x2="456.0" y2="172.4" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="450.0" y1="135.7" x2="456.0" y2="135.7" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>always predict the most common human score: 0.97</title><line x1="332.0" y1="139.8" x2="470.0" y2="139.8" stroke="#0b0b0b" stroke-width="2.5"/></g>
+<text x="401.0" y="328.0" font-size="13" fill="#0b0b0b" text-anchor="middle" font-weight="600">Correctness</text>
+<g><title>Jev 1.13 · Coherence: 0.60 (95% CI 0.54 to 0.65)</title><path d="M567.0,308.0 L567.0,209.1 Q567.0,205.1 571.0,205.1 L587.0,205.1 Q591.0,205.1 591.0,209.1 L591.0,308.0 Z" fill="#2a78d6"/></g>
+<line x1="579.0" y1="214.5" x2="579.0" y2="196.1" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="576.0" y1="214.5" x2="582.0" y2="214.5" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="576.0" y1="196.1" x2="582.0" y2="196.1" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<text x="579.0" y="190.1" font-size="11.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">0.60</text>
+<g><title>Haiku 5.5 · Coherence: 0.65 (95% CI 0.58 to 0.73)</title><path d="M593.0,308.0 L593.0,199.0 Q593.0,195.0 597.0,195.0 L613.0,195.0 Q617.0,195.0 617.0,199.0 L617.0,308.0 Z" fill="#eb6834"/></g>
+<line x1="605.0" y1="208.4" x2="605.0" y2="181.1" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="602.0" y1="208.4" x2="608.0" y2="208.4" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="602.0" y1="181.1" x2="608.0" y2="181.1" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Haiku 5.5 + thinking · Coherence: 0.62 (95% CI 0.54 to 0.69)</title><path d="M619.0,308.0 L619.0,205.4 Q619.0,201.4 623.0,201.4 L639.0,201.4 Q643.0,201.4 643.0,205.4 L643.0,308.0 Z" fill="url(#hatch6-eb6834)"/></g>
+<line x1="631.0" y1="214.1" x2="631.0" y2="189.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="628.0" y1="214.1" x2="634.0" y2="214.1" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="628.0" y1="189.3" x2="634.0" y2="189.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 · Coherence: 0.79 (95% CI 0.71 to 0.87)</title><path d="M645.0,308.0 L645.0,175.1 Q645.0,171.1 649.0,171.1 L665.0,171.1 Q669.0,171.1 669.0,175.1 L669.0,308.0 Z" fill="#1baf7a"/></g>
+<line x1="657.0" y1="185.6" x2="657.0" y2="157.6" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="654.0" y1="185.6" x2="660.0" y2="185.6" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="654.0" y1="157.6" x2="660.0" y2="157.6" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 + thinking · Coherence: 0.55 (95% CI 0.48 to 0.61)</title><path d="M671.0,308.0 L671.0,216.9 Q671.0,212.9 675.0,212.9 L691.0,212.9 Q695.0,212.9 695.0,216.9 L695.0,308.0 Z" fill="url(#hatch6-1baf7a)"/></g>
+<line x1="683.0" y1="224.5" x2="683.0" y2="201.8" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="680.0" y1="224.5" x2="686.0" y2="224.5" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="680.0" y1="201.8" x2="686.0" y2="201.8" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>always predict the most common human score: 0.35</title><line x1="562.0" y1="246.9" x2="700.0" y2="246.9" stroke="#0b0b0b" stroke-width="2.5"/></g>
+<text x="631.0" y="328.0" font-size="13" fill="#0b0b0b" text-anchor="middle" font-weight="600">Coherence</text>
+<rect x="56.0" y="13.0" width="11" height="11" rx="2" fill="#2a78d6"/>
+<text x="74.0" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Jev 1.13</text>
+<rect x="146.2" y="13.0" width="11" height="11" rx="2" fill="#eb6834"/>
+<text x="164.2" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Haiku 5.5</text>
+<rect x="243.3" y="13.0" width="11" height="11" rx="2" fill="url(#hatch6-eb6834)"/>
+<text x="261.3" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Haiku 5.5 + thinking</text>
+<rect x="416.3" y="13.0" width="11" height="11" rx="2" fill="#1baf7a"/>
+<text x="434.3" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Sonnet 5.5</text>
+<rect x="520.3" y="13.0" width="11" height="11" rx="2" fill="url(#hatch6-1baf7a)"/>
+<text x="538.3" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Sonnet 5.5 + thinking</text>
+<line x1="56.0" y1="38.0" x2="70.0" y2="38.0" stroke="#0b0b0b" stroke-width="2.5"/>
+<text x="74.0" y="42.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">always predict the most common human score</text>
+</svg>
+<div class="cap">Figure 6. Mean absolute error of the expected score against the human rating, with 95% confidence intervals. The black bar in each group is the error of always predicting the most common human score for that criterion. Lower is better. Hatched bars are the thinking arms. Only Jev's bars are labeled.</div>
+</div>
+
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 340" role="img" aria-label="Grouped columns: quadratic weighted kappa between each judge&#x27;s rounded score and the human rating for each criterion, with 95% confidence intervals." style="width:100%;height:auto;max-width:760px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#ffffff">
+<defs><pattern id="hatch7-eb6834" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#f7c6b2"/><rect width="3" height="6" fill="#eb6834"/></pattern><pattern id="hatch7-1baf7a" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#a8e1cc"/><rect width="3" height="6" fill="#1baf7a"/></pattern></defs>
+<rect width="760" height="340" fill="#ffffff"/>
+<text x="16.0" y="167.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400" transform="rotate(-90 16 167.0)">Quadratic weighted kappa (higher is better)</text>
+<line x1="56.0" y1="288.0" x2="746.0" y2="288.0" stroke="#bdbcb6" stroke-width="1"/>
+<text x="48.0" y="292.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">0.00</text>
+<line x1="56.0" y1="247.7" x2="746.0" y2="247.7" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="251.7" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">0.10</text>
+<line x1="56.0" y1="207.3" x2="746.0" y2="207.3" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="211.3" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">0.20</text>
+<line x1="56.0" y1="167.0" x2="746.0" y2="167.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="171.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">0.30</text>
+<line x1="56.0" y1="126.7" x2="746.0" y2="126.7" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="130.7" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">0.40</text>
+<line x1="56.0" y1="86.3" x2="746.0" y2="86.3" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="90.3" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">0.50</text>
+<line x1="56.0" y1="46.0" x2="746.0" y2="46.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="50.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">0.60</text>
+<g><title>Jev 1.13 · Helpfulness: 0.44 (95% CI 0.35 to 0.52)</title><path d="M107.0,288.0 L107.0,115.7 Q107.0,111.7 111.0,111.7 L127.0,111.7 Q131.0,111.7 131.0,115.7 L131.0,288.0 Z" fill="#2a78d6"/></g>
+<line x1="119.0" y1="146.9" x2="119.0" y2="78.1" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="116.0" y1="146.9" x2="122.0" y2="146.9" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="116.0" y1="78.1" x2="122.0" y2="78.1" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<text x="119.0" y="72.1" font-size="11.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">0.44</text>
+<g><title>Haiku 5.5 · Helpfulness: 0.46 (95% CI 0.37 to 0.55)</title><path d="M133.0,288.0 L133.0,105.3 Q133.0,101.3 137.0,101.3 L153.0,101.3 Q157.0,101.3 157.0,105.3 L157.0,288.0 Z" fill="#eb6834"/></g>
+<line x1="145.0" y1="138.5" x2="145.0" y2="65.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="142.0" y1="138.5" x2="148.0" y2="138.5" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="142.0" y1="65.3" x2="148.0" y2="65.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Haiku 5.5 + thinking · Helpfulness: 0.41 (95% CI 0.32 to 0.50)</title><path d="M159.0,288.0 L159.0,125.6 Q159.0,121.6 163.0,121.6 L179.0,121.6 Q183.0,121.6 183.0,125.6 L183.0,288.0 Z" fill="url(#hatch7-eb6834)"/></g>
+<line x1="171.0" y1="158.5" x2="171.0" y2="86.4" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="168.0" y1="158.5" x2="174.0" y2="158.5" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="168.0" y1="86.4" x2="174.0" y2="86.4" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 · Helpfulness: 0.41 (95% CI 0.31 to 0.50)</title><path d="M185.0,288.0 L185.0,128.1 Q185.0,124.1 189.0,124.1 L205.0,124.1 Q209.0,124.1 209.0,128.1 L209.0,288.0 Z" fill="#1baf7a"/></g>
+<line x1="197.0" y1="161.8" x2="197.0" y2="87.9" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="194.0" y1="161.8" x2="200.0" y2="161.8" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="194.0" y1="87.9" x2="200.0" y2="87.9" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 + thinking · Helpfulness: 0.40 (95% CI 0.31 to 0.49)</title><path d="M211.0,288.0 L211.0,130.2 Q211.0,126.2 215.0,126.2 L231.0,126.2 Q235.0,126.2 235.0,130.2 L235.0,288.0 Z" fill="url(#hatch7-1baf7a)"/></g>
+<line x1="223.0" y1="163.7" x2="223.0" y2="92.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="220.0" y1="163.7" x2="226.0" y2="163.7" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="220.0" y1="92.3" x2="226.0" y2="92.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<text x="171.0" y="308.0" font-size="13" fill="#0b0b0b" text-anchor="middle" font-weight="600">Helpfulness</text>
+<g><title>Jev 1.13 · Correctness: 0.40 (95% CI 0.30 to 0.49)</title><path d="M337.0,288.0 L337.0,131.3 Q337.0,127.3 341.0,127.3 L357.0,127.3 Q361.0,127.3 361.0,131.3 L361.0,288.0 Z" fill="#2a78d6"/></g>
+<line x1="349.0" y1="166.3" x2="349.0" y2="89.6" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="346.0" y1="166.3" x2="352.0" y2="166.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="346.0" y1="89.6" x2="352.0" y2="89.6" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<text x="349.0" y="83.6" font-size="11.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">0.40</text>
+<g><title>Haiku 5.5 · Correctness: 0.41 (95% CI 0.31 to 0.50)</title><path d="M363.0,288.0 L363.0,126.5 Q363.0,122.5 367.0,122.5 L383.0,122.5 Q387.0,122.5 387.0,126.5 L387.0,288.0 Z" fill="#eb6834"/></g>
+<line x1="375.0" y1="163.8" x2="375.0" y2="85.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="372.0" y1="163.8" x2="378.0" y2="163.8" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="372.0" y1="85.0" x2="378.0" y2="85.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Haiku 5.5 + thinking · Correctness: 0.41 (95% CI 0.31 to 0.51)</title><path d="M389.0,288.0 L389.0,126.9 Q389.0,122.9 393.0,122.9 L409.0,122.9 Q413.0,122.9 413.0,126.9 L413.0,288.0 Z" fill="url(#hatch7-eb6834)"/></g>
+<line x1="401.0" y1="164.8" x2="401.0" y2="84.2" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="398.0" y1="164.8" x2="404.0" y2="164.8" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="398.0" y1="84.2" x2="404.0" y2="84.2" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 · Correctness: 0.40 (95% CI 0.31 to 0.49)</title><path d="M415.0,288.0 L415.0,129.7 Q415.0,125.7 419.0,125.7 L435.0,125.7 Q439.0,125.7 439.0,129.7 L439.0,288.0 Z" fill="#1baf7a"/></g>
+<line x1="427.0" y1="161.7" x2="427.0" y2="90.5" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="424.0" y1="161.7" x2="430.0" y2="161.7" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="424.0" y1="90.5" x2="430.0" y2="90.5" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 + thinking · Correctness: 0.47 (95% CI 0.38 to 0.57)</title><path d="M441.0,288.0 L441.0,100.9 Q441.0,96.9 445.0,96.9 L461.0,96.9 Q465.0,96.9 465.0,100.9 L465.0,288.0 Z" fill="url(#hatch7-1baf7a)"/></g>
+<line x1="453.0" y1="136.5" x2="453.0" y2="58.1" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="450.0" y1="136.5" x2="456.0" y2="136.5" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="450.0" y1="58.1" x2="456.0" y2="58.1" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<text x="401.0" y="308.0" font-size="13" fill="#0b0b0b" text-anchor="middle" font-weight="600">Correctness</text>
+<g><title>Jev 1.13 · Coherence: 0.30 (95% CI 0.18 to 0.41)</title><path d="M567.0,288.0 L567.0,169.7 Q567.0,165.7 571.0,165.7 L587.0,165.7 Q591.0,165.7 591.0,169.7 L591.0,288.0 Z" fill="#2a78d6"/></g>
+<line x1="579.0" y1="213.5" x2="579.0" y2="120.8" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="576.0" y1="213.5" x2="582.0" y2="213.5" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="576.0" y1="120.8" x2="582.0" y2="120.8" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<text x="579.0" y="114.8" font-size="11.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">0.30</text>
+<g><title>Haiku 5.5 · Coherence: 0.33 (95% CI 0.21 to 0.44)</title><path d="M593.0,288.0 L593.0,160.3 Q593.0,156.3 597.0,156.3 L613.0,156.3 Q617.0,156.3 617.0,160.3 L617.0,288.0 Z" fill="#eb6834"/></g>
+<line x1="605.0" y1="201.9" x2="605.0" y2="112.4" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="602.0" y1="201.9" x2="608.0" y2="201.9" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="602.0" y1="112.4" x2="608.0" y2="112.4" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Haiku 5.5 + thinking · Coherence: 0.30 (95% CI 0.20 to 0.39)</title><path d="M619.0,288.0 L619.0,170.5 Q619.0,166.5 623.0,166.5 L639.0,166.5 Q643.0,166.5 643.0,170.5 L643.0,288.0 Z" fill="url(#hatch7-eb6834)"/></g>
+<line x1="631.0" y1="207.9" x2="631.0" y2="130.4" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="628.0" y1="207.9" x2="634.0" y2="207.9" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="628.0" y1="130.4" x2="634.0" y2="130.4" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 · Coherence: 0.30 (95% CI 0.20 to 0.40)</title><path d="M645.0,288.0 L645.0,170.5 Q645.0,166.5 649.0,166.5 L665.0,166.5 Q669.0,166.5 669.0,170.5 L669.0,288.0 Z" fill="#1baf7a"/></g>
+<line x1="657.0" y1="208.0" x2="657.0" y2="128.5" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="654.0" y1="208.0" x2="660.0" y2="208.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="654.0" y1="128.5" x2="660.0" y2="128.5" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 + thinking · Coherence: 0.38 (95% CI 0.27 to 0.49)</title><path d="M671.0,288.0 L671.0,137.0 Q671.0,133.0 675.0,133.0 L691.0,133.0 Q695.0,133.0 695.0,137.0 L695.0,288.0 Z" fill="url(#hatch7-1baf7a)"/></g>
+<line x1="683.0" y1="179.7" x2="683.0" y2="92.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="680.0" y1="179.7" x2="686.0" y2="179.7" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="680.0" y1="92.3" x2="686.0" y2="92.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<text x="631.0" y="308.0" font-size="13" fill="#0b0b0b" text-anchor="middle" font-weight="600">Coherence</text>
+<rect x="56.0" y="13.0" width="11" height="11" rx="2" fill="#2a78d6"/>
+<text x="74.0" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Jev 1.13</text>
+<rect x="146.2" y="13.0" width="11" height="11" rx="2" fill="#eb6834"/>
+<text x="164.2" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Haiku 5.5</text>
+<rect x="243.3" y="13.0" width="11" height="11" rx="2" fill="url(#hatch7-eb6834)"/>
+<text x="261.3" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Haiku 5.5 + thinking</text>
+<rect x="416.3" y="13.0" width="11" height="11" rx="2" fill="#1baf7a"/>
+<text x="434.3" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Sonnet 5.5</text>
+<rect x="520.3" y="13.0" width="11" height="11" rx="2" fill="url(#hatch7-1baf7a)"/>
+<text x="538.3" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Sonnet 5.5 + thinking</text>
+</svg>
+<div class="cap">Figure 7. Quadratic weighted kappa between each judge's rounded score and the human rating (0 is chance agreement, 1 is perfect). Higher is better.</div>
+</div>
+
+<p>Rubric scoring is clearly harder than the binary decision, for every judge, and thinking does not change that much.</p>
+<ul>
+<li><strong>Agreement is moderate.</strong> Quadratic weighted kappa ranges from 0.30 to 0.47 across all judges and criteria, and the rank correlations are in the same range: the judges order responses roughly the way humans do, but not closely.</li>
+<li><strong>Exact match is below the trivial baseline in every case.</strong> For example, on helpfulness the judges match the human score on 33.0% (Jev), 31.7% and 32.0% (Haiku, one-shot and with thinking) and 29.5% and 29.5% (Sonnet) of responses, while always guessing the most common human score would match 42.3%. For coherence, humans rated 73% of responses a 4, so the baseline hits 73.3% and the judges only between 37.6% and 50.7%.</li>
+<li><strong>MAE tells a similar story.</strong> On helpfulness the judges are close to the baseline error (0.99 for Jev, against 1.07). On correctness they are level or slightly worse (baseline 0.97). On coherence all of them are much worse than the baseline (0.60 for Jev and 0.55 for Sonnet with thinking, against 0.35).</li>
+<li><strong>All judges score harder than the humans.</strong> Humans gave a 4 for helpfulness to 127 of 300 responses; Jev did so for 33, one-shot Haiku for 45 and Haiku with thinking for 25. The pattern repeats for correctness (humans 142; Jev 50) and, less strongly, for coherence. My level descriptions may be stricter than the annotators' working definition.</li>
+</ul>
+<p>Does thinking help here? For Haiku, no: the mean absolute error is unchanged. For Sonnet, a little:</p>
+<table>
+<thead>
+<tr>
+<th>Comparison</th>
+<th>n</th>
+<th>Helpfulness</th>
+<th>Correctness</th>
+<th>Coherence</th>
+<th>Mean of three</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Haiku 5.5: thinking − one-shot</td>
+<td>300</td>
+<td>+0.10 [+0.02, +0.18]</td>
+<td>−0.04 [−0.11, +0.04]</td>
+<td>−0.04 [−0.12, +0.03]</td>
+<td>+0.01 [−0.05, +0.06]</td>
+</tr>
+<tr>
+<td>Sonnet 5.5: thinking − one-shot</td>
+<td>297</td>
+<td>−0.01 [−0.06, +0.03]</td>
+<td>−0.20 [−0.26, −0.14]</td>
+<td>−0.24 [−0.30, −0.18]</td>
+<td>−0.15 [−0.19, −0.11]</td>
+</tr>
+</tbody>
+</table>
+<p>Averaged over the three criteria, Sonnet's error with thinking is 0.15 lower than without it (paired difference −0.15, 95% CI [−0.19, −0.11]), driven by correctness and coherence, and Haiku's is unchanged (+0.01, [−0.05, +0.06]). Compared with Jev:</p>
+<table>
+<thead>
+<tr>
+<th>Comparison</th>
+<th>n</th>
+<th>Helpfulness</th>
+<th>Correctness</th>
+<th>Coherence</th>
+<th>Mean of three</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Jev − Haiku 5.5</td>
+<td>300</td>
+<td>+0.07 [+0.01, +0.13]</td>
+<td>+0.01 [−0.06, +0.07]</td>
+<td>−0.06 [−0.12, 0.00]</td>
+<td>+0.01 [−0.04, +0.05]</td>
+</tr>
+<tr>
+<td>Jev − Haiku 5.5 + thinking</td>
+<td>300</td>
+<td>−0.03 [−0.09, +0.03]</td>
+<td>+0.04 [−0.02, +0.11]</td>
+<td>−0.02 [−0.08, +0.03]</td>
+<td>0.00 [−0.04, +0.04]</td>
+</tr>
+<tr>
+<td>Jev − Sonnet 5.5</td>
+<td>298</td>
+<td>−0.09 [−0.15, −0.03]</td>
+<td>−0.09 [−0.17, −0.02]</td>
+<td>−0.20 [−0.25, −0.13]</td>
+<td>−0.13 [−0.17, −0.07]</td>
+</tr>
+<tr>
+<td>Jev − Sonnet 5.5 + thinking</td>
+<td>297</td>
+<td>−0.08 [−0.14, −0.01]</td>
+<td>+0.10 [+0.04, +0.17]</td>
+<td>+0.04 [−0.01, +0.10]</td>
+<td>+0.02 [−0.02, +0.07]</td>
+</tr>
+</tbody>
+</table>
+<p>Jev is level with both thinking judges on the average error (0.00 against Haiku with thinking, +0.02 against Sonnet with thinking, both with intervals that include zero) and has a smaller error than one-shot Sonnet (−0.13). Read this as "Jev is no worse than the LLMs at a task none of them does well", not as "Jev is good at rubric scoring". Rubric labels from humans are also noisy, which puts a ceiling on how well any judge can match them. Note that the Sonnet numbers cover a few responses fewer than the others (the failure table above).</p>
+<h3 id="speed-and-cost">Speed and cost</h3>
+<div class="fig">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 338" role="img" aria-label="Horizontal bars: median and 95th-percentile latency per judged item for the binary and rubric tasks, five judges." style="width:100%;height:auto;max-width:800px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#ffffff">
+<defs><pattern id="hatch8-eb6834" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#f7c6b2"/><rect width="3" height="6" fill="#eb6834"/></pattern><pattern id="hatch8-1baf7a" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#a8e1cc"/><rect width="3" height="6" fill="#1baf7a"/></pattern></defs>
+<rect width="800" height="338" fill="#ffffff"/>
+<line x1="150.0" y1="66.0" x2="150.0" y2="280.0" stroke="#bdbcb6" stroke-width="1"/>
+<text x="150.0" y="298.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">0 s</text>
+<line x1="219.6" y1="66.0" x2="219.6" y2="280.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="219.6" y="298.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">5 s</text>
+<line x1="289.1" y1="66.0" x2="289.1" y2="280.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="289.1" y="298.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">10 s</text>
+<line x1="358.7" y1="66.0" x2="358.7" y2="280.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="358.7" y="298.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">15 s</text>
+<line x1="428.2" y1="66.0" x2="428.2" y2="280.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="428.2" y="298.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">20 s</text>
+<line x1="497.8" y1="66.0" x2="497.8" y2="280.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="497.8" y="298.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">25 s</text>
+<line x1="567.3" y1="66.0" x2="567.3" y2="280.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="567.3" y="298.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">30 s</text>
+<line x1="636.9" y1="66.0" x2="636.9" y2="280.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="636.9" y="298.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">35 s</text>
+<line x1="706.4" y1="66.0" x2="706.4" y2="280.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="706.4" y="298.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">40 s</text>
+<line x1="776.0" y1="66.0" x2="776.0" y2="280.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="776.0" y="298.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">45 s</text>
+<rect x="150.0" y="13.0" width="11" height="11" rx="2" fill="#2a78d6"/>
+<text x="168.0" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Jev 1.13</text>
+<rect x="240.2" y="13.0" width="11" height="11" rx="2" fill="#eb6834"/>
+<text x="258.2" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Haiku 5.5</text>
+<rect x="337.3" y="13.0" width="11" height="11" rx="2" fill="url(#hatch8-eb6834)"/>
+<text x="355.3" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Haiku 5.5 + thinking</text>
+<rect x="510.3" y="13.0" width="11" height="11" rx="2" fill="#1baf7a"/>
+<text x="528.3" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Sonnet 5.5</text>
+<rect x="150.0" y="33.0" width="11" height="11" rx="2" fill="url(#hatch8-1baf7a)"/>
+<text x="168.0" y="42.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Sonnet 5.5 + thinking</text>
+<text x="136.0" y="116.0" font-size="13" fill="#0b0b0b" text-anchor="end" font-weight="600">Binary verdict</text>
+<g><title>Jev 1.13 · Binary verdict: median 0.31 s, 95th percentile 0.51 s</title><path d="M150,66 L150.3,66 Q154.3,66 154.3,70 L154.3,78 Q154.3,82 150.3,82 L150,82 Z" fill="#2a78d6"/><line x1="154.3" y1="74.0" x2="157.0" y2="74.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/><line x1="157.0" y1="70.0" x2="157.0" y2="78.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/></g>
+<text x="165.0" y="78.0" font-size="11.5" fill="#0b0b0b" text-anchor="start" font-weight="600">0.31 s (p95 0.51 s)</text>
+<g><title>Haiku 5.5 · Binary verdict: median 1.43 s, 95th percentile 2.46 s</title><path d="M150,85 L165.9,85 Q169.9,85 169.9,89 L169.9,97 Q169.9,101 165.9,101 L150,101 Z" fill="#eb6834"/><line x1="169.9" y1="93.0" x2="184.2" y2="93.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/><line x1="184.2" y1="89.0" x2="184.2" y2="97.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/></g>
+<g><title>Haiku 5.5 + thinking · Binary verdict: median 3.91 s, 95th percentile 19.60 s</title><path d="M150,104 L200.4,104 Q204.4,104 204.4,108 L204.4,116 Q204.4,120 200.4,120 L150,120 Z" fill="url(#hatch8-eb6834)"/><line x1="204.4" y1="112.0" x2="422.7" y2="112.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/><line x1="422.7" y1="108.0" x2="422.7" y2="116.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/></g>
+<g><title>Sonnet 5.5 · Binary verdict: median 1.84 s, 95th percentile 3.40 s</title><path d="M150,123 L171.6,123 Q175.6,123 175.6,127 L175.6,135 Q175.6,139 171.6,139 L150,139 Z" fill="#1baf7a"/><line x1="175.6" y1="131.0" x2="197.3" y2="131.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/><line x1="197.3" y1="127.0" x2="197.3" y2="135.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/></g>
+<g><title>Sonnet 5.5 + thinking · Binary verdict: median 4.44 s, 95th percentile 15.93 s</title><path d="M150,142 L207.7,142 Q211.7,142 211.7,146 L211.7,154 Q211.7,158 207.7,158 L150,158 Z" fill="url(#hatch8-1baf7a)"/><line x1="211.7" y1="150.0" x2="371.7" y2="150.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/><line x1="371.7" y1="146.0" x2="371.7" y2="154.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/></g>
+<text x="136.0" y="232.0" font-size="13" fill="#0b0b0b" text-anchor="end" font-weight="600">Rubric score</text>
+<g><title>Jev 1.13 · Rubric score: median 0.31 s, 95th percentile 0.51 s</title><path d="M150,182 L150.4,182 Q154.4,182 154.4,186 L154.4,194 Q154.4,198 150.4,198 L150,198 Z" fill="#2a78d6"/><line x1="154.4" y1="190.0" x2="157.1" y2="190.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/><line x1="157.1" y1="186.0" x2="157.1" y2="194.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/></g>
+<text x="165.1" y="194.0" font-size="11.5" fill="#0b0b0b" text-anchor="start" font-weight="600">0.31 s (p95 0.51 s)</text>
+<g><title>Haiku 5.5 · Rubric score: median 2.09 s, 95th percentile 8.51 s</title><path d="M150,201 L175.1,201 Q179.1,201 179.1,205 L179.1,213 Q179.1,217 175.1,217 L150,217 Z" fill="#eb6834"/><line x1="179.1" y1="209.0" x2="268.3" y2="209.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/><line x1="268.3" y1="205.0" x2="268.3" y2="213.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/></g>
+<g><title>Haiku 5.5 + thinking · Rubric score: median 14.90 s, 95th percentile 40.94 s</title><path d="M150,220 L353.3,220 Q357.3,220 357.3,224 L357.3,232 Q357.3,236 353.3,236 L150,236 Z" fill="url(#hatch8-eb6834)"/><line x1="357.3" y1="228.0" x2="719.5" y2="228.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/><line x1="719.5" y1="224.0" x2="719.5" y2="232.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/></g>
+<g><title>Sonnet 5.5 · Rubric score: median 2.28 s, 95th percentile 3.50 s</title><path d="M150,239 L177.7,239 Q181.7,239 181.7,243 L181.7,251 Q181.7,255 177.7,255 L150,255 Z" fill="#1baf7a"/><line x1="181.7" y1="247.0" x2="198.7" y2="247.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/><line x1="198.7" y1="243.0" x2="198.7" y2="251.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/></g>
+<g><title>Sonnet 5.5 + thinking · Rubric score: median 12.68 s, 95th percentile 31.95 s</title><path d="M150,258 L322.4,258 Q326.4,258 326.4,262 L326.4,270 Q326.4,274 322.4,274 L150,274 Z" fill="url(#hatch8-1baf7a)"/><line x1="326.4" y1="266.0" x2="594.4" y2="266.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/><line x1="594.4" y1="262.0" x2="594.4" y2="270.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/></g>
+<text x="776.0" y="332.0" font-size="11.5" fill="#52514e" text-anchor="end" font-weight="400">Bar: median · whisker: 95th percentile</text>
+</svg>
+<div class="cap">Figure 8. Time per judged item as seen by the client: bar = median, whisker = 95th percentile. A one-shot Claude item takes as long as its slowest of five (binary) or fifteen (rubric) parallel calls; a thinking item is one call (binary) or three parallel calls (rubric). Only Jev's bar is labeled.</div>
+</div>
+
+<table>
+<thead>
+<tr>
+<th>Task</th>
+<th>Judge</th>
+<th>Per item, median (ms)</th>
+<th>Per item, p95 (ms)</th>
+<th>One call, median (ms)</th>
+<th>Calls per item</th>
+<th>Tokens in / out per item</th>
+<th>Claude API cost per 1,000 items</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Binary</td>
+<td>Jev 1.13</td>
+<td>309</td>
+<td>506</td>
+<td>309</td>
+<td>1</td>
+<td>469 / 20</td>
+<td>n/a</td>
+</tr>
+<tr>
+<td></td>
+<td>Haiku 5.5</td>
+<td>1430</td>
+<td>2456</td>
+<td>1111</td>
+<td>5</td>
+<td>2,671 / 60</td>
+<td>$0.3</td>
+</tr>
+<tr>
+<td></td>
+<td>Haiku 5.5 + thinking</td>
+<td>3911</td>
+<td>19603</td>
+<td>3911</td>
+<td>1</td>
+<td>535 / 980</td>
+<td>$0.7</td>
+</tr>
+<tr>
+<td></td>
+<td>Sonnet 5.5</td>
+<td>1844</td>
+<td>3399</td>
+<td>1444</td>
+<td>5</td>
+<td>2,671 / 60</td>
+<td>$5.9</td>
+</tr>
+<tr>
+<td></td>
+<td>Sonnet 5.5 + thinking</td>
+<td>4439</td>
+<td>15933</td>
+<td>4439</td>
+<td>1</td>
+<td>535 / 537</td>
+<td>$7.7</td>
+</tr>
+<tr>
+<td>Rubric</td>
+<td>Jev 1.13</td>
+<td>314</td>
+<td>511</td>
+<td>314</td>
+<td>1</td>
+<td>1,101 / 49</td>
+<td>n/a</td>
+</tr>
+<tr>
+<td></td>
+<td>Haiku 5.5</td>
+<td>2089</td>
+<td>8506</td>
+<td>1209</td>
+<td>15</td>
+<td>17,282 / 135</td>
+<td>$1.8</td>
+</tr>
+<tr>
+<td></td>
+<td>Haiku 5.5 + thinking</td>
+<td>14904</td>
+<td>40940</td>
+<td>9680</td>
+<td>3</td>
+<td>3,459 / 5,982</td>
+<td>$3.4</td>
+</tr>
+<tr>
+<td></td>
+<td>Sonnet 5.5</td>
+<td>2279</td>
+<td>3501</td>
+<td>1534</td>
+<td>15</td>
+<td>17,309 / 135</td>
+<td>$36.2</td>
+</tr>
+<tr>
+<td></td>
+<td>Sonnet 5.5 + thinking</td>
+<td>12681</td>
+<td>31949</td>
+<td>8454</td>
+<td>3</td>
+<td>3,462 / 3,059</td>
+<td>$38.3</td>
+</tr>
+</tbody>
+</table>
+<p>Jev's median time per binary verdict was 0.31 s (95th percentile 0.51 s). The one-shot Claude judges took 1.43 s (Haiku) and 1.84 s (Sonnet), and the thinking judges 3.91 s and 4.44 s, with a long tail: the 95th percentile was 19.60 s for Haiku and 15.93 s for Sonnet. The thinking judges are therefore about 13 to 14 times slower than Jev per verdict. For rubric scoring Jev's single request (0.31 s) compares with 14.90 s (Haiku) and 12.68 s (Sonnet) for the thinking judges, about 40 to 47 times slower.</p>
+<p>Part of the one-shot gap comes from my protocol (the slowest of five parallel calls). Per single call, one-shot Haiku takes 1.11 s and Sonnet 1.44 s at the median, so Jev is still 3.6 to 4.7 times faster per call. Jev also processes far fewer input tokens per binary item: 469, against 2,671 for the five one-shot Claude calls.</p>
+<p>On cost, a thinking call is expensive because the thinking tokens are billed as output: $0.0076 per binary call for Sonnet with thinking against $0.0012 one-shot (about 6 times), and $0.0007 against $0.0001 for Haiku (about 11 times). Per item the picture is muddied by the different sample counts: the one-shot arms make five calls per binary item and the thinking arms one. The table above gives the cost per 1,000 items for what I actually ran. Jev's own pricing is not included, because I do not have it.</p>
+<h2 id="understanding-the-results">Understanding the results</h2>
+<p><strong>These are the numbers from one run.</strong> The conclusions above hold for this setup. They may change on a different run, and they will very likely change with different models:</p>
+<ul>
+<li><strong>Different runs.</strong> The Claude models were sampled at default temperature. For the one-shot arms the five votes were identical on 91.2% (Haiku) and 97.5% (Sonnet) of binary items, so run-to-run variation there is probably small. But the thinking arms use a single sample of a long, adaptive chain of thought, which I expect to vary more, and I did not repeat any run to measure it. I also did not check how repeatable Jev's output is across runs. The confidence intervals reflect which items were sampled from each dataset. They do not capture run-to-run variation.</li>
+<li><strong>Different models and settings.</strong> The thinking arms were run at one effort level (<code>max</code>), chosen because lower effort made Sonnet skip thinking on many items. Another effort level, a newer or older Claude model, a different Jev version, or a different prompt wording could shift every number. I did not tune the instruction wording for any judge.</li>
+<li><strong>One sample for the thinking arms.</strong> Because of cost, the thinking arms have a single sample, so no probabilities and a coarser rubric score than the one-shot arms (see the setup).</li>
+<li><strong>Different data.</strong> The wrong answers are synthetic or dataset-made: near-miss numbers, single-edit code mutants, and benchmark hallucinations. The mistakes of a real model under evaluation may be easier or harder to catch. GSM8K, MBPP, HaluEval and HelpSteer2 are public, so some contamination of either system's training data is possible.</li>
+<li><strong>Failed items.</strong> Some thinking verdicts and scores are missing (failure table). For binary I show accuracy with failures excluded and counted as wrong, and the ranking holds either way. The missing Sonnet rubric responses are a budget accident, not a model property.</li>
+<li><strong>Many comparisons.</strong> I looked at several sources, criteria and metrics. The pooled comparisons are the main results; the per-source and per-criterion differences are exploratory and not corrected for multiple comparisons.</li>
+<li><strong>Label noise.</strong> HelpSteer2 ratings come from human annotators who do not always agree, and the level descriptions I wrote are my paraphrase of the scale.</li>
+<li><strong>Latency.</strong> Times are client-side wall-clock measurements at a concurrency of four, including network time. They are indicative, not server-side benchmarks.</li>
+</ul>
+<p><strong>What the results do and do not say.</strong> They say that, for pointwise binary correctness, a one-pass Jev can match a same-generation one-shot LLM and beat a smaller one, at a fraction of the latency and with well-calibrated probabilities. They also say that LLM judges that think are clearly more accurate than Jev here (about 11 points, with far fewer false accepts), at about 13 to 14 times the latency per verdict and with a failure mode of their own, and that Jev's mistakes lean toward accepting wrong answers. They do not show how any of this behaves on real model outputs, and they do not say how a thinking judge would compare at a different effort level.</p>
+<h2 id="conclusion">Conclusion</h2>
+<p>Speed and cost only matter once a judge is correct enough, so I measured correctness first. Against one-shot LLM judges, Jev 1.13 did well: 86.4% accuracy, level with Claude Sonnet 5.5 (86.8%) and well ahead of Claude Haiku 5.5 (77.9%), while answering in about a third of a second. But once the LLM judges are allowed to think, they win on correctness: 97.1% for Haiku and 97.9% for Sonnet, with false-accept rates of about 2% where Jev's is 16.0%. That is the answer to the question I started with. If the only thing that matters is whether the verdict is right, a thinking LLM judge beat Jev on this benchmark, and Jev is not yet a drop-in replacement for it.</p>
+<p>What Jev offers instead is speed and probabilities you can use. Its verdicts arrive about 13 to 14 times faster than the thinking judges' (and it never ran out of output budget), and its confidence is well calibrated, so it can say when it is unsure. That suggests a practical design: let Jev decide the cases it is confident about and send the rest to a thinking judge. I have not tested that cascade, so it remains a hypothesis. For rubric scoring on a 0 to 4 scale, no judge I tested was good, thinking barely helped, and Jev was level with the thinking judges.</p>
+<p>My reading: Jev looks like a credible fast first-pass judge for correctness decisions, and not yet a replacement where false accepts are expensive or where the judgments are graded. What is still open: the confidence-based cascade, other effort levels and more samples for the thinking arms, repeated runs and other Jev versions, and real outputs from the system you actually want to evaluate.</p>
+<h2 id="a-note-on-the-bill">A note on the bill</h2>
+<p>This experiment cost me about $60 of my own money: $57 for everything up to the final rerun and $3 more for that rerun. That makes it a very expensive way to confirm that thinking is not free. Only about $40 of it is visible in the final result files, as Claude usage at list prices. The rest went on things those files do not show: test and pilot runs, the first thinking runs that I discarded, and archived runs from attempts I had to throw away, such as the one where I politely asked the models to reply with one word and they politely ignored me. Jev's share is not itemized here. The budget also left its mark on the data: my API balance hit zero 21 rubric responses before the end of Sonnet's thinking run, which cost me a top-up and a rerun to fill in. If this article saved you from running the same experiment, feedback is very welcome; it is the only reimbursement program available. :')</p>
+<h2 id="references">References</h2>
+<ol>
+<li>LangChain documentation, <em>TypeSafe (Jev) integration</em>: https://docs.langchain.com/oss/python/integrations/providers/typesafe</li>
+<li>Zheng, L., et al. (2023). <em>Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena.</em></li>
+<li>Cobbe, K., et al. (2021). <em>Training Verifiers to Solve Math Word Problems</em> (GSM8K).</li>
+<li>Austin, J., et al. (2021). <em>Program Synthesis with Large Language Models</em> (MBPP).</li>
+<li>Li, J., et al. (2023). <em>HaluEval: A Large-Scale Hallucination Evaluation Benchmark for Large Language Models.</em></li>
+<li>Wang, Z., et al. (2024). <em>HelpSteer2: Open-source dataset for training top-performing reward models.</em></li>
+</ol>
+</main>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {delimiters: [{left: '\\[', right: '\\]', display: true}, {left: '\\(', right: '\\)', display: false}], throwOnError: false});"></script>
+</body>
+</html>

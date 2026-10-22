@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 380" role="img" aria-label="Reliability diagram: stated confidence against actual accuracy for the judges that return graded probabilities, pooled over all binary items." style="width:100%;height:auto;max-width:760px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#ffffff">
+<rect width="760" height="380" fill="#ffffff"/>
+<line x1="56.0" y1="328.0" x2="570.0" y2="328.0" stroke="#bdbcb6" stroke-width="1"/>
+<text x="48.0" y="332.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">30%</text>
+<line x1="56.0" y1="284.0" x2="570.0" y2="284.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="288.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">40%</text>
+<line x1="56.0" y1="240.0" x2="570.0" y2="240.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="244.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">50%</text>
+<line x1="56.0" y1="196.0" x2="570.0" y2="196.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="200.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">60%</text>
+<line x1="56.0" y1="152.0" x2="570.0" y2="152.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="156.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">70%</text>
+<line x1="56.0" y1="108.0" x2="570.0" y2="108.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="112.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">80%</text>
+<line x1="56.0" y1="64.0" x2="570.0" y2="64.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="68.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">90%</text>
+<line x1="56.0" y1="20.0" x2="570.0" y2="20.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="24.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">100%</text>
+<text x="56.0" y="346.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">50%</text>
+<text x="158.8" y="346.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">60%</text>
+<text x="261.6" y="346.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">70%</text>
+<text x="364.4" y="346.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">80%</text>
+<text x="467.2" y="346.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">90%</text>
+<text x="570.0" y="346.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">100%</text>
+<text x="313.0" y="370.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400">Stated confidence  max(p, 1 − p)</text>
+<text x="16.0" y="174.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400" transform="rotate(-90 16 174.0)">Actual accuracy</text>
+<line x1="56.0" y1="240.0" x2="570.0" y2="20.0" stroke="#8a8984" stroke-width="1.25"/>
+<polyline points="105.8,194.3 201.8,187.4 303.3,142.0 415.1,67.8 538.9,32.5" fill="none" stroke="#2a78d6" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<g><title>Jev 1.13: confidence 0.55, accuracy 60.4%, n = 106</title><circle cx="105.8" cy="194.3" r="5.4" fill="#2a78d6" stroke="#ffffff" stroke-width="2"/></g>
+<g><title>Jev 1.13: confidence 0.64, accuracy 61.9%, n = 113</title><circle cx="201.8" cy="187.4" r="5.5" fill="#2a78d6" stroke="#ffffff" stroke-width="2"/></g>
+<g><title>Jev 1.13: confidence 0.74, accuracy 72.3%, n = 119</title><circle cx="303.3" cy="142.0" r="5.5" fill="#2a78d6" stroke="#ffffff" stroke-width="2"/></g>
+<g><title>Jev 1.13: confidence 0.85, accuracy 89.1%, n = 129</title><circle cx="415.1" cy="67.8" r="5.6" fill="#2a78d6" stroke="#ffffff" stroke-width="2"/></g>
+<g><title>Jev 1.13: confidence 0.97, accuracy 97.2%, n = 633</title><circle cx="538.9" cy="32.5" r="7.5" fill="#2a78d6" stroke="#ffffff" stroke-width="2"/></g>
+<circle cx="592" cy="40" r="5" fill="#2a78d6" stroke="#ffffff" stroke-width="2"/>
+<text x="604.0" y="44.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Jev 1.13</text>
+<polyline points="158.8,288.3 364.4,208.6 570.0,105.1" fill="none" stroke="#eb6834" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<g><title>Haiku 5.5: confidence 0.60, accuracy 39.0%, n = 41</title><circle cx="158.8" cy="288.3" r="4.9" fill="#eb6834" stroke="#ffffff" stroke-width="2"/></g>
+<g><title>Haiku 5.5: confidence 0.80, accuracy 57.1%, n = 56</title><circle cx="364.4" cy="208.6" r="5.0" fill="#eb6834" stroke="#ffffff" stroke-width="2"/></g>
+<g><title>Haiku 5.5: confidence 1.00, accuracy 80.7%, n = 1003</title><circle cx="570.0" cy="105.1" r="8.4" fill="#eb6834" stroke="#ffffff" stroke-width="2"/></g>
+<circle cx="592" cy="62" r="5" fill="#eb6834" stroke="#ffffff" stroke-width="2"/>
+<text x="604.0" y="66.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Haiku 5.5</text>
+<polyline points="364.4,297.9 570.0,72.5" fill="none" stroke="#1baf7a" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<g><title>Sonnet 5.5: confidence 0.80, accuracy 36.8%, n = 19</title><circle cx="364.4" cy="297.9" r="4.6" fill="#1baf7a" stroke="#ffffff" stroke-width="2"/></g>
+<g><title>Sonnet 5.5: confidence 1.00, accuracy 88.1%, n = 1072</title><circle cx="570.0" cy="72.5" r="8.5" fill="#1baf7a" stroke="#ffffff" stroke-width="2"/></g>
+<circle cx="592" cy="84" r="5" fill="#1baf7a" stroke="#ffffff" stroke-width="2"/>
+<text x="604.0" y="88.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Sonnet 5.5</text>
+<line x1="583" y1="106" x2="601" y2="106" stroke="#8a8984" stroke-width="1.25"/>
+<text x="604.0" y="110.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">perfect calibration</text>
+<text x="584.0" y="146.0" font-size="11.5" fill="#52514e" text-anchor="start" font-weight="400">Marker area ∝ number of</text>
+<text x="584.0" y="161.0" font-size="11.5" fill="#52514e" text-anchor="start" font-weight="400">items (bins with n &lt; 10</text>
+<text x="584.0" y="176.0" font-size="11.5" fill="#52514e" text-anchor="start" font-weight="400">are omitted).</text>
+</svg>

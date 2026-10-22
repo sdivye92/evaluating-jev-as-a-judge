@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 340" role="img" aria-label="Grouped columns: pooled false-accept rate (wrong answers marked correct) and false-reject rate (correct answers marked incorrect) for the five judges, with 95% confidence intervals." style="width:100%;height:auto;max-width:760px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#ffffff">
+<defs><pattern id="hatch2-eb6834" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#f7c6b2"/><rect width="3" height="6" fill="#eb6834"/></pattern><pattern id="hatch2-1baf7a" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#a8e1cc"/><rect width="3" height="6" fill="#1baf7a"/></pattern></defs>
+<rect width="760" height="340" fill="#ffffff"/>
+<text x="16.0" y="167.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400" transform="rotate(-90 16 167.0)">Share of the relevant answers</text>
+<line x1="56.0" y1="288.0" x2="746.0" y2="288.0" stroke="#bdbcb6" stroke-width="1"/>
+<text x="48.0" y="292.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">0%</text>
+<line x1="56.0" y1="227.5" x2="746.0" y2="227.5" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="231.5" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">10%</text>
+<line x1="56.0" y1="167.0" x2="746.0" y2="167.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="171.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">20%</text>
+<line x1="56.0" y1="106.5" x2="746.0" y2="106.5" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="110.5" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">30%</text>
+<line x1="56.0" y1="46.0" x2="746.0" y2="46.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="50.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">40%</text>
+<g><title>Jev 1.13 · False-accept rate: 16.0% (95% CI 12.9% to 18.9%)</title><path d="M164.5,288.0 L164.5,195.2 Q164.5,191.2 168.5,191.2 L184.5,191.2 Q188.5,191.2 188.5,195.2 L188.5,288.0 Z" fill="#2a78d6"/></g>
+<line x1="176.5" y1="209.9" x2="176.5" y2="173.6" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="173.5" y1="209.9" x2="179.5" y2="209.9" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="173.5" y1="173.6" x2="179.5" y2="173.6" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<text x="176.5" y="167.6" font-size="11.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">16.0%</text>
+<g><title>Haiku 5.5 · False-accept rate: 9.6% (95% CI 7.1% to 12.2%)</title><path d="M190.5,288.0 L190.5,233.7 Q190.5,229.7 194.5,229.7 L210.5,229.7 Q214.5,229.7 214.5,233.7 L214.5,288.0 Z" fill="#eb6834"/></g>
+<line x1="202.5" y1="245.1" x2="202.5" y2="214.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="199.5" y1="245.1" x2="205.5" y2="245.1" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="199.5" y1="214.3" x2="205.5" y2="214.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Haiku 5.5 + thinking · False-accept rate: 2.2% (95% CI 1.1% to 3.5%)</title><path d="M216.5,288.0 L216.5,278.8 Q216.5,274.8 220.5,274.8 L236.5,274.8 Q240.5,274.8 240.5,278.8 L240.5,288.0 Z" fill="url(#hatch2-eb6834)"/></g>
+<line x1="228.5" y1="281.4" x2="228.5" y2="267.1" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="225.5" y1="281.4" x2="231.5" y2="281.4" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="225.5" y1="267.1" x2="231.5" y2="267.1" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 · False-accept rate: 6.9% (95% CI 4.9% to 9.1%)</title><path d="M242.5,288.0 L242.5,250.2 Q242.5,246.2 246.5,246.2 L262.5,246.2 Q266.5,246.2 266.5,250.2 L266.5,288.0 Z" fill="#1baf7a"/></g>
+<line x1="254.5" y1="258.3" x2="254.5" y2="233.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="251.5" y1="258.3" x2="257.5" y2="258.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="251.5" y1="233.0" x2="257.5" y2="233.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 + thinking · False-accept rate: 1.8% (95% CI 0.7% to 2.9%)</title><path d="M268.5,288.0 L268.5,281.0 Q268.5,277.0 272.5,277.0 L288.5,277.0 Q292.5,277.0 292.5,281.0 L292.5,288.0 Z" fill="url(#hatch2-1baf7a)"/></g>
+<line x1="280.5" y1="283.6" x2="280.5" y2="270.4" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="277.5" y1="283.6" x2="283.5" y2="283.6" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="277.5" y1="270.4" x2="283.5" y2="270.4" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<text x="228.5" y="308.0" font-size="13" fill="#0b0b0b" text-anchor="middle" font-weight="600">False-accept rate</text>
+<text x="228.5" y="324.0" font-size="11.5" fill="#52514e" text-anchor="middle" font-weight="400">of the 550 incorrect answers, share accepted</text>
+<g><title>Jev 1.13 · False-reject rate: 11.3% (95% CI 8.7% to 14.0%)</title><path d="M509.5,288.0 L509.5,223.8 Q509.5,219.8 513.5,219.8 L529.5,219.8 Q533.5,219.8 533.5,223.8 L533.5,288.0 Z" fill="#2a78d6"/></g>
+<line x1="521.5" y1="235.2" x2="521.5" y2="203.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="518.5" y1="235.2" x2="524.5" y2="235.2" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="518.5" y1="203.3" x2="524.5" y2="203.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<text x="521.5" y="197.3" font-size="11.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">11.3%</text>
+<g><title>Haiku 5.5 · False-reject rate: 34.5% (95% CI 30.5% to 38.5%)</title><path d="M535.5,288.0 L535.5,83.0 Q535.5,79.0 539.5,79.0 L555.5,79.0 Q559.5,79.0 559.5,83.0 L559.5,288.0 Z" fill="#eb6834"/></g>
+<line x1="547.5" y1="103.2" x2="547.5" y2="54.8" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="544.5" y1="103.2" x2="550.5" y2="103.2" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="544.5" y1="54.8" x2="550.5" y2="54.8" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Haiku 5.5 + thinking · False-reject rate: 3.7% (95% CI 2.2% to 5.1%)</title><path d="M561.5,288.0 L561.5,269.7 Q561.5,265.7 565.5,265.7 L581.5,265.7 Q585.5,265.7 585.5,269.7 L585.5,288.0 Z" fill="url(#hatch2-eb6834)"/></g>
+<line x1="573.5" y1="274.7" x2="573.5" y2="256.9" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="570.5" y1="274.7" x2="576.5" y2="274.7" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="570.5" y1="256.9" x2="576.5" y2="256.9" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 · False-reject rate: 19.5% (95% CI 16.2% to 22.9%)</title><path d="M587.5,288.0 L587.5,174.3 Q587.5,170.3 591.5,170.3 L607.5,170.3 Q611.5,170.3 611.5,174.3 L611.5,288.0 Z" fill="#1baf7a"/></g>
+<line x1="599.5" y1="190.1" x2="599.5" y2="149.4" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="596.5" y1="190.1" x2="602.5" y2="190.1" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="596.5" y1="149.4" x2="602.5" y2="149.4" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 + thinking · False-reject rate: 2.4% (95% CI 1.3% to 3.6%)</title><path d="M613.5,288.0 L613.5,277.7 Q613.5,273.7 617.5,273.7 L633.5,273.7 Q637.5,273.7 637.5,277.7 L637.5,288.0 Z" fill="url(#hatch2-1baf7a)"/></g>
+<line x1="625.5" y1="280.3" x2="625.5" y2="266.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="622.5" y1="280.3" x2="628.5" y2="280.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="622.5" y1="266.0" x2="628.5" y2="266.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<text x="573.5" y="308.0" font-size="13" fill="#0b0b0b" text-anchor="middle" font-weight="600">False-reject rate</text>
+<text x="573.5" y="324.0" font-size="11.5" fill="#52514e" text-anchor="middle" font-weight="400">of the 550 correct answers, share rejected</text>
+<rect x="56.0" y="13.0" width="11" height="11" rx="2" fill="#2a78d6"/>
+<text x="74.0" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Jev 1.13</text>
+<rect x="146.2" y="13.0" width="11" height="11" rx="2" fill="#eb6834"/>
+<text x="164.2" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Haiku 5.5</text>
+<rect x="243.3" y="13.0" width="11" height="11" rx="2" fill="url(#hatch2-eb6834)"/>
+<text x="261.3" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Haiku 5.5 + thinking</text>
+<rect x="416.3" y="13.0" width="11" height="11" rx="2" fill="#1baf7a"/>
+<text x="434.3" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Sonnet 5.5</text>
+<rect x="520.3" y="13.0" width="11" height="11" rx="2" fill="url(#hatch2-1baf7a)"/>
+<text x="538.3" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Sonnet 5.5 + thinking</text>
+</svg>

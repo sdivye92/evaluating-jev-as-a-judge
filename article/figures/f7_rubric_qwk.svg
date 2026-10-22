@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 340" role="img" aria-label="Grouped columns: quadratic weighted kappa between each judge&#x27;s rounded score and the human rating for each criterion, with 95% confidence intervals." style="width:100%;height:auto;max-width:760px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#ffffff">
+<defs><pattern id="hatch7-eb6834" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#f7c6b2"/><rect width="3" height="6" fill="#eb6834"/></pattern><pattern id="hatch7-1baf7a" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#a8e1cc"/><rect width="3" height="6" fill="#1baf7a"/></pattern></defs>
+<rect width="760" height="340" fill="#ffffff"/>
+<text x="16.0" y="167.0" font-size="12" fill="#52514e" text-anchor="middle" font-weight="400" transform="rotate(-90 16 167.0)">Quadratic weighted kappa (higher is better)</text>
+<line x1="56.0" y1="288.0" x2="746.0" y2="288.0" stroke="#bdbcb6" stroke-width="1"/>
+<text x="48.0" y="292.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">0.00</text>
+<line x1="56.0" y1="247.7" x2="746.0" y2="247.7" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="251.7" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">0.10</text>
+<line x1="56.0" y1="207.3" x2="746.0" y2="207.3" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="211.3" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">0.20</text>
+<line x1="56.0" y1="167.0" x2="746.0" y2="167.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="171.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">0.30</text>
+<line x1="56.0" y1="126.7" x2="746.0" y2="126.7" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="130.7" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">0.40</text>
+<line x1="56.0" y1="86.3" x2="746.0" y2="86.3" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="90.3" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">0.50</text>
+<line x1="56.0" y1="46.0" x2="746.0" y2="46.0" stroke="#e8e7e3" stroke-width="1"/>
+<text x="48.0" y="50.0" font-size="12" fill="#52514e" text-anchor="end" font-weight="400">0.60</text>
+<g><title>Jev 1.13 · Helpfulness: 0.44 (95% CI 0.35 to 0.52)</title><path d="M107.0,288.0 L107.0,115.7 Q107.0,111.7 111.0,111.7 L127.0,111.7 Q131.0,111.7 131.0,115.7 L131.0,288.0 Z" fill="#2a78d6"/></g>
+<line x1="119.0" y1="146.9" x2="119.0" y2="78.1" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="116.0" y1="146.9" x2="122.0" y2="146.9" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="116.0" y1="78.1" x2="122.0" y2="78.1" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<text x="119.0" y="72.1" font-size="11.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">0.44</text>
+<g><title>Haiku 5.5 · Helpfulness: 0.46 (95% CI 0.37 to 0.55)</title><path d="M133.0,288.0 L133.0,105.3 Q133.0,101.3 137.0,101.3 L153.0,101.3 Q157.0,101.3 157.0,105.3 L157.0,288.0 Z" fill="#eb6834"/></g>
+<line x1="145.0" y1="138.5" x2="145.0" y2="65.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="142.0" y1="138.5" x2="148.0" y2="138.5" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="142.0" y1="65.3" x2="148.0" y2="65.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Haiku 5.5 + thinking · Helpfulness: 0.41 (95% CI 0.32 to 0.50)</title><path d="M159.0,288.0 L159.0,125.6 Q159.0,121.6 163.0,121.6 L179.0,121.6 Q183.0,121.6 183.0,125.6 L183.0,288.0 Z" fill="url(#hatch7-eb6834)"/></g>
+<line x1="171.0" y1="158.5" x2="171.0" y2="86.4" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="168.0" y1="158.5" x2="174.0" y2="158.5" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="168.0" y1="86.4" x2="174.0" y2="86.4" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 · Helpfulness: 0.41 (95% CI 0.31 to 0.50)</title><path d="M185.0,288.0 L185.0,128.1 Q185.0,124.1 189.0,124.1 L205.0,124.1 Q209.0,124.1 209.0,128.1 L209.0,288.0 Z" fill="#1baf7a"/></g>
+<line x1="197.0" y1="161.8" x2="197.0" y2="87.9" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="194.0" y1="161.8" x2="200.0" y2="161.8" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="194.0" y1="87.9" x2="200.0" y2="87.9" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 + thinking · Helpfulness: 0.40 (95% CI 0.31 to 0.49)</title><path d="M211.0,288.0 L211.0,130.2 Q211.0,126.2 215.0,126.2 L231.0,126.2 Q235.0,126.2 235.0,130.2 L235.0,288.0 Z" fill="url(#hatch7-1baf7a)"/></g>
+<line x1="223.0" y1="163.7" x2="223.0" y2="92.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="220.0" y1="163.7" x2="226.0" y2="163.7" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="220.0" y1="92.3" x2="226.0" y2="92.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<text x="171.0" y="308.0" font-size="13" fill="#0b0b0b" text-anchor="middle" font-weight="600">Helpfulness</text>
+<g><title>Jev 1.13 · Correctness: 0.40 (95% CI 0.30 to 0.49)</title><path d="M337.0,288.0 L337.0,131.3 Q337.0,127.3 341.0,127.3 L357.0,127.3 Q361.0,127.3 361.0,131.3 L361.0,288.0 Z" fill="#2a78d6"/></g>
+<line x1="349.0" y1="166.3" x2="349.0" y2="89.6" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="346.0" y1="166.3" x2="352.0" y2="166.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="346.0" y1="89.6" x2="352.0" y2="89.6" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<text x="349.0" y="83.6" font-size="11.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">0.40</text>
+<g><title>Haiku 5.5 · Correctness: 0.41 (95% CI 0.31 to 0.50)</title><path d="M363.0,288.0 L363.0,126.5 Q363.0,122.5 367.0,122.5 L383.0,122.5 Q387.0,122.5 387.0,126.5 L387.0,288.0 Z" fill="#eb6834"/></g>
+<line x1="375.0" y1="163.8" x2="375.0" y2="85.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="372.0" y1="163.8" x2="378.0" y2="163.8" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="372.0" y1="85.0" x2="378.0" y2="85.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Haiku 5.5 + thinking · Correctness: 0.41 (95% CI 0.31 to 0.51)</title><path d="M389.0,288.0 L389.0,126.9 Q389.0,122.9 393.0,122.9 L409.0,122.9 Q413.0,122.9 413.0,126.9 L413.0,288.0 Z" fill="url(#hatch7-eb6834)"/></g>
+<line x1="401.0" y1="164.8" x2="401.0" y2="84.2" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="398.0" y1="164.8" x2="404.0" y2="164.8" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="398.0" y1="84.2" x2="404.0" y2="84.2" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 · Correctness: 0.40 (95% CI 0.31 to 0.49)</title><path d="M415.0,288.0 L415.0,129.7 Q415.0,125.7 419.0,125.7 L435.0,125.7 Q439.0,125.7 439.0,129.7 L439.0,288.0 Z" fill="#1baf7a"/></g>
+<line x1="427.0" y1="161.7" x2="427.0" y2="90.5" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="424.0" y1="161.7" x2="430.0" y2="161.7" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="424.0" y1="90.5" x2="430.0" y2="90.5" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 + thinking · Correctness: 0.47 (95% CI 0.38 to 0.57)</title><path d="M441.0,288.0 L441.0,100.9 Q441.0,96.9 445.0,96.9 L461.0,96.9 Q465.0,96.9 465.0,100.9 L465.0,288.0 Z" fill="url(#hatch7-1baf7a)"/></g>
+<line x1="453.0" y1="136.5" x2="453.0" y2="58.1" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="450.0" y1="136.5" x2="456.0" y2="136.5" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="450.0" y1="58.1" x2="456.0" y2="58.1" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<text x="401.0" y="308.0" font-size="13" fill="#0b0b0b" text-anchor="middle" font-weight="600">Correctness</text>
+<g><title>Jev 1.13 · Coherence: 0.30 (95% CI 0.18 to 0.41)</title><path d="M567.0,288.0 L567.0,169.7 Q567.0,165.7 571.0,165.7 L587.0,165.7 Q591.0,165.7 591.0,169.7 L591.0,288.0 Z" fill="#2a78d6"/></g>
+<line x1="579.0" y1="213.5" x2="579.0" y2="120.8" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="576.0" y1="213.5" x2="582.0" y2="213.5" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="576.0" y1="120.8" x2="582.0" y2="120.8" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<text x="579.0" y="114.8" font-size="11.5" fill="#0b0b0b" text-anchor="middle" font-weight="600">0.30</text>
+<g><title>Haiku 5.5 · Coherence: 0.33 (95% CI 0.21 to 0.44)</title><path d="M593.0,288.0 L593.0,160.3 Q593.0,156.3 597.0,156.3 L613.0,156.3 Q617.0,156.3 617.0,160.3 L617.0,288.0 Z" fill="#eb6834"/></g>
+<line x1="605.0" y1="201.9" x2="605.0" y2="112.4" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="602.0" y1="201.9" x2="608.0" y2="201.9" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="602.0" y1="112.4" x2="608.0" y2="112.4" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Haiku 5.5 + thinking · Coherence: 0.30 (95% CI 0.20 to 0.39)</title><path d="M619.0,288.0 L619.0,170.5 Q619.0,166.5 623.0,166.5 L639.0,166.5 Q643.0,166.5 643.0,170.5 L643.0,288.0 Z" fill="url(#hatch7-eb6834)"/></g>
+<line x1="631.0" y1="207.9" x2="631.0" y2="130.4" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="628.0" y1="207.9" x2="634.0" y2="207.9" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="628.0" y1="130.4" x2="634.0" y2="130.4" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 · Coherence: 0.30 (95% CI 0.20 to 0.40)</title><path d="M645.0,288.0 L645.0,170.5 Q645.0,166.5 649.0,166.5 L665.0,166.5 Q669.0,166.5 669.0,170.5 L669.0,288.0 Z" fill="#1baf7a"/></g>
+<line x1="657.0" y1="208.0" x2="657.0" y2="128.5" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="654.0" y1="208.0" x2="660.0" y2="208.0" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="654.0" y1="128.5" x2="660.0" y2="128.5" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<g><title>Sonnet 5.5 + thinking · Coherence: 0.38 (95% CI 0.27 to 0.49)</title><path d="M671.0,288.0 L671.0,137.0 Q671.0,133.0 675.0,133.0 L691.0,133.0 Q695.0,133.0 695.0,137.0 L695.0,288.0 Z" fill="url(#hatch7-1baf7a)"/></g>
+<line x1="683.0" y1="179.7" x2="683.0" y2="92.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="680.0" y1="179.7" x2="686.0" y2="179.7" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<line x1="680.0" y1="92.3" x2="686.0" y2="92.3" stroke="#0b0b0b" stroke-width="1.25" opacity="0.75"/>
+<text x="631.0" y="308.0" font-size="13" fill="#0b0b0b" text-anchor="middle" font-weight="600">Coherence</text>
+<rect x="56.0" y="13.0" width="11" height="11" rx="2" fill="#2a78d6"/>
+<text x="74.0" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Jev 1.13</text>
+<rect x="146.2" y="13.0" width="11" height="11" rx="2" fill="#eb6834"/>
+<text x="164.2" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Haiku 5.5</text>
+<rect x="243.3" y="13.0" width="11" height="11" rx="2" fill="url(#hatch7-eb6834)"/>
+<text x="261.3" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Haiku 5.5 + thinking</text>
+<rect x="416.3" y="13.0" width="11" height="11" rx="2" fill="#1baf7a"/>
+<text x="434.3" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Sonnet 5.5</text>
+<rect x="520.3" y="13.0" width="11" height="11" rx="2" fill="url(#hatch7-1baf7a)"/>
+<text x="538.3" y="22.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">Sonnet 5.5 + thinking</text>
+</svg>
